@@ -33,23 +33,31 @@ import {
 } from '../../../../common/ui/RenderUtils';
 import { useIsMobile } from '../../../../../hooks/common/useIsMobile';
 
-function renderQuotaType(type, t) {
-  switch (type) {
-    case 1:
-      return (
-        <Tag color='teal' shape='circle'>
-          {t('按次计费')}
-        </Tag>
-      );
-    case 0:
-      return (
-        <Tag color='violet' shape='circle'>
-          {t('按量计费')}
-        </Tag>
-      );
-    default:
-      return t('未知');
-  }
+// 计费类型 Tag 文案：优先 pricing_template.label（如"按秒计费"），
+// mapping miss 时 fallback 到 quota_type 原文案。颜色与详情弹窗一致。
+const QUOTA_TYPE_COLOR_MAP = {
+  按量计费: 'violet',
+  按次计费: 'teal',
+  按秒计费: 'cyan',
+  按分钟计费: 'green',
+  按字符计费: 'orange',
+};
+
+function renderQuotaType(record, t) {
+  if (!record) return t('未知');
+  const label =
+    record.pricing_template?.label ||
+    (record.quota_type === 0
+      ? '按量计费'
+      : record.quota_type === 1
+        ? '按次计费'
+        : null);
+  if (!label) return t('未知');
+  return (
+    <Tag color={QUOTA_TYPE_COLOR_MAP[label] || 'white'} shape='circle'>
+      {t(label)}
+    </Tag>
+  );
 }
 
 // Render vendor name
@@ -160,7 +168,7 @@ export const getPricingTableColumns = ({
     title: t('计费类型'),
     dataIndex: 'quota_type',
     render: (text, record, index) => {
-      return renderQuotaType(parseInt(text), t);
+      return renderQuotaType(record, t);
     },
     sorter: (a, b) => a.quota_type - b.quota_type,
   };
