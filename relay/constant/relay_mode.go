@@ -52,6 +52,11 @@ const (
 	RelayModeGemini
 
 	RelayModeResponsesCompact
+
+	// MiniMax extended endpoints (file upload / voice clone / music generation)
+	RelayModeMiniMaxFilesUpload
+	RelayModeMiniMaxVoiceClone
+	RelayModeMiniMaxMusic
 )
 
 func Path2RelayMode(path string) int {
