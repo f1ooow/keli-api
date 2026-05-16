@@ -657,11 +657,11 @@ export const calculateModelPrice = ({
   }
 
   // 2.5 per_character 模型：后端 quota_type=0 用 model_ratio 配置，但语义是按字符计费。
-  // 单价 = ratio × 0.002 × group_ratio（元 / 字符）。展示用 "元 / 1K 字符" 更直观。
+  // newapi 标准约定：1 ratio = 2 USD / 1M tokens (本 fork 把字符当 token 算)。
+  // 所以 ratio × 0.002 = USD / 1K tokens = USD / 1K 字符；× group_ratio 后由 displayPrice 转 CNY。
   if (record.pricing_type === 'per_character') {
     const ratio = Number(record.model_ratio) || 0;
-    const perCharUSD = ratio * 0.002 * usedGroupRatio;
-    const per1KCharsUSD = perCharUSD * 1000;
+    const per1KCharsUSD = ratio * 0.002 * usedGroupRatio;
     return {
       price: displayPrice(per1KCharsUSD),
       isPerToken: false,

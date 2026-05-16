@@ -160,16 +160,31 @@ const PricingCardView = ({
         -
       </Tag>
     );
-    if (record.quota_type === 1) {
+    // 计费类型 Tag：优先 pricing_template.label（按秒/按分钟/按字符/按次/按量），
+    // mapping miss 时 fallback 到 quota_type 原文案
+    const cardLabel =
+      record.pricing_template?.label ||
+      (record.quota_type === 0
+        ? '按量计费'
+        : record.quota_type === 1
+          ? '按次计费'
+          : null);
+    if (cardLabel) {
+      const colorMap = {
+        按量计费: 'violet',
+        按次计费: 'teal',
+        按秒计费: 'cyan',
+        按分钟计费: 'green',
+        按字符计费: 'orange',
+      };
       billingTag = (
-        <Tag key='billing' shape='circle' color='teal' size='small'>
-          {t('按次计费')}
-        </Tag>
-      );
-    } else if (record.quota_type === 0) {
-      billingTag = (
-        <Tag key='billing' shape='circle' color='violet' size='small'>
-          {t('按量计费')}
+        <Tag
+          key='billing'
+          shape='circle'
+          color={colorMap[cardLabel] || 'white'}
+          size='small'
+        >
+          {t(cardLabel)}
         </Tag>
       );
     }
