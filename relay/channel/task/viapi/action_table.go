@@ -44,6 +44,17 @@ func LookupAction(modelName string) (ActionConfig, bool) {
 	return cfg, ok
 }
 
+// LookupActionByName 根据 Action 字符串名（如 "EraseVideoSubtitles"）反查 ActionConfig
+// 用于在 RelayInfo.Action 已设置但 model 不可访问时使用
+func LookupActionByName(action string) (ActionConfig, bool) {
+	for _, cfg := range ActionTable {
+		if cfg.Action == action {
+			return cfg, true
+		}
+	}
+	return ActionConfig{}, false
+}
+
 // LookupRoute 根据 product 名查 ProductRoute
 func LookupRoute(product string) (ProductRoute, bool) {
 	r, ok := ProductRoutes[product]
