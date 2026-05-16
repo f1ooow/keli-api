@@ -27,6 +27,17 @@ var ModelList = []string{
 	"MiniMax-M2.5-highspeed",
 	"image-01",
 	"image-01-live",
+
+	"minimax-files-upload",
+	"minimax-voice-clone",
+	"minimax-music-generation",
+	"music-2.6",
+	"music-2.6-free",
+	"music-2.5+",
+	"music-2.5",
+	"music-2.0",
+	"music-cover",
+	"music-cover-free",
 }
 
 var ChannelName = "minimax"

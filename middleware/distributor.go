@@ -397,6 +397,7 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 		c.Set("relay_mode", relayconstant.RelayModeMiniMaxVoiceClone)
 	}
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/music_generation") {
+		modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "minimax-music-generation")
 		c.Set("relay_mode", relayconstant.RelayModeMiniMaxMusic)
 	}
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/audio") {
