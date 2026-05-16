@@ -22,6 +22,7 @@ import { Radio, RadioGroup } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
 import ModelPricingEditor from './components/ModelPricingEditor';
 import ModelRatioSettings from './ModelRatioSettings';
+import BillingTypeGuideCallout from './BillingTypeGuideCallout';
 
 export default function ModelPricingCombined({ options, refresh }) {
   const { t } = useTranslation();
@@ -29,6 +30,7 @@ export default function ModelPricingCombined({ options, refresh }) {
 
   return (
     <div>
+      <BillingTypeGuideCallout />
       <div style={{ marginTop: 12, marginBottom: 16 }}>
         <RadioGroup
           type='button'
