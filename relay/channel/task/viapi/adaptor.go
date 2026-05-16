@@ -249,15 +249,19 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 	if !ok || jobID == "" {
 		return nil, fmt.Errorf("viapi: invalid task_id")
 	}
-	// model 名从 body 里取（newapi task 持久化时会把 OriginModelName 放进 body）
-	modelName, _ := body["model"].(string)
-	if modelName == "" {
-		// 兜底：尝试 origin_model_name
-		modelName, _ = body["origin_model_name"].(string)
+	// 从 body 的 "action" 字段反查 product；newapi 在 polling 时会传入 task.Action
+	action, _ := body["action"].(string)
+	if action == "" {
+		// 兜底：从 model 字段反查
+		if modelName, ok := body["model"].(string); ok {
+			if cfg, found := LookupAction(modelName); found {
+				action = cfg.Action
+			}
+		}
 	}
-	cfg, cfgOk := LookupAction(modelName)
+	cfg, cfgOk := LookupActionByName(action)
 	if !cfgOk {
-		return nil, fmt.Errorf("viapi: cannot resolve product for model %q (jobId=%s)", modelName, jobID)
+		return nil, fmt.Errorf("viapi: cannot resolve product for action %q (jobId=%s)", action, jobID)
 	}
 	route, routeOk := LookupRoute(cfg.Product)
 	if !routeOk {
