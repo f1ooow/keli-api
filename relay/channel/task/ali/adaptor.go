@@ -46,7 +46,7 @@ type AliVideoInput struct {
 	FirstFrameURL  string          `json:"first_frame_url,omitempty"` // 首帧图片URL（首尾帧生视频）
 	LastFrameURL   string          `json:"last_frame_url,omitempty"`  // 尾帧图片URL（首尾帧生视频）
 	AudioURL       string          `json:"audio_url,omitempty"`       // 音频URL（wan2.5支持）
-	Media          []AliVideoMedia `json:"media,omitempty"`           // 媒体列表（wan2.7-i2v新协议）
+	Media          []AliVideoMedia `json:"media,omitempty"`           // 媒体列表（wan2.7-i2v新协议；happyhorse 家族复用此字段传首帧/参考图/视频）
 	NegativePrompt string          `json:"negative_prompt,omitempty"` // 反向提示词
 	Template       string          `json:"template,omitempty"`        // 视频特效模板
 }
@@ -60,6 +60,8 @@ type AliVideoParameters struct {
 	Watermark    bool   `json:"watermark,omitempty"`     // 是否添加水印
 	Audio        *bool  `json:"audio,omitempty"`         // 是否添加音频（wan2.5）
 	Seed         int    `json:"seed,omitempty"`          // 随机数种子
+	Ratio        string `json:"ratio,omitempty"`         // happyhorse: 比例 "16:9" / "9:16" / "1:1" / ...
+	AudioSetting string `json:"audio_setting,omitempty"` // happyhorse-video-edit: "auto" / "origin"
 }
 
 // AliVideoResponse 阿里通义万相响应
@@ -98,7 +100,7 @@ type AliMetadata struct {
 	ImgURL         string          `json:"img_url,omitempty"`         // 图片URL（图生视频）
 	FirstFrameURL  string          `json:"first_frame_url,omitempty"` // 首帧图片URL（首尾帧生视频）
 	LastFrameURL   string          `json:"last_frame_url,omitempty"`  // 尾帧图片URL（首尾帧生视频）
-	Media          []AliVideoMedia `json:"media,omitempty"`           // 媒体列表（wan2.7-i2v新协议）
+	Media          []AliVideoMedia `json:"media,omitempty"`           // 媒体列表（wan2.7-i2v新协议；happyhorse 家族复用此字段）
 	NegativePrompt string          `json:"negative_prompt,omitempty"` // 反向提示词
 	Template       string          `json:"template,omitempty"`        // 视频特效模板
 
@@ -110,6 +112,8 @@ type AliMetadata struct {
 	Watermark    *bool   `json:"watermark,omitempty"`     // 是否添加水印
 	Audio        *bool   `json:"audio,omitempty"`         // 是否添加音频
 	Seed         *int    `json:"seed,omitempty"`          // 随机数种子
+	Ratio        *string `json:"ratio,omitempty"`         // happyhorse: 比例
+	AudioSetting *string `json:"audio_setting,omitempty"` // happyhorse-video-edit: 音频设置
 }
 
 // ============================
@@ -187,6 +191,11 @@ var (
 	}
 )
 
+// isHappyHorse 判断 model 是否属于 DashScope happyhorse 家族
+func isHappyHorse(model string) bool {
+	return strings.HasPrefix(model, "happyhorse-")
+}
+
 func sizeToResolution(size string) (string, error) {
 	if lo.Contains(size480p, size) {
 		return "480P", nil
@@ -235,6 +244,23 @@ func ProcessAliOtherRatios(aliReq *AliVideoRequest) (map[string]float64, error) 
 		"wan2.2-s2v": {
 			"480P": 1,
 			"720P": 0.9 / 0.5,
+		},
+		// HappyHorse 家族：720P 基准 1.0，1080P = 1.6/0.9 ≈ 1.778
+		"happyhorse-1.0-t2v": {
+			"720P":  1,
+			"1080P": 1.6 / 0.9,
+		},
+		"happyhorse-1.0-i2v": {
+			"720P":  1,
+			"1080P": 1.6 / 0.9,
+		},
+		"happyhorse-1.0-r2v": {
+			"720P":  1,
+			"1080P": 1.6 / 0.9,
+		},
+		"happyhorse-1.0-video-edit": {
+			"720P":  1,
+			"1080P": 1.6 / 0.9,
 		},
 	}
 	var resolution string
@@ -366,8 +392,8 @@ func (a *TaskAdaptor) convertToAliRequest(info *relaycommon.RelayInfo, req relay
 
 	// 处理分辨率映射
 	if req.Size != "" {
-		// text to video size must be contained *
-		if strings.Contains(req.Model, "t2v") && !strings.Contains(req.Size, "*") {
+		// text to video size must be contained * (happyhorse 用 resolution 档位，跳过此校验)
+		if strings.Contains(req.Model, "t2v") && !strings.Contains(req.Size, "*") && !isHappyHorse(req.Model) {
 			return nil, fmt.Errorf("invalid size: %s, example: %s", req.Size, "1920*1080")
 		}
 		if strings.Contains(req.Size, "*") {
@@ -382,7 +408,10 @@ func (a *TaskAdaptor) convertToAliRequest(info *relaycommon.RelayInfo, req relay
 		}
 	} else {
 		// 根据模型设置默认分辨率
-		if strings.Contains(req.Model, "t2v") { // image to video
+		if isHappyHorse(req.Model) {
+			// happyhorse 系列默认 1080P；不使用 size，只用 resolution 档位
+			aliReq.Parameters.Resolution = "1080P"
+		} else if strings.Contains(req.Model, "t2v") { // image to video
 			if strings.HasPrefix(req.Model, "wan2.5") {
 				aliReq.Parameters.Size = "1920*1080"
 			} else if strings.HasPrefix(req.Model, "wan2.2") {

@@ -8,6 +8,11 @@ var ModelList = []string{
 	"wan2.2-i2v-plus",    // 万相2.2专业版（无声视频）
 	"wanx2.1-i2v-plus",   // 万相2.1专业版（无声视频）
 	"wanx2.1-i2v-turbo",  // 万相2.1极速版（无声视频）
+	// HappyHorse family — DashScope happyhorse-1.0 系列
+	"happyhorse-1.0-t2v",        // 文生视频
+	"happyhorse-1.0-i2v",        // 图生视频（首帧）
+	"happyhorse-1.0-r2v",        // 参考图生视频（1-9 张）
+	"happyhorse-1.0-video-edit", // 视频编辑
 }
 
 var ChannelName = "ali"
