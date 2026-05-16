@@ -20,6 +20,10 @@ For commercial licensing, please contact support@quantumnous.com
 import { useState, useEffect, useContext, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { API, copy, showError, showInfo, showSuccess } from '../../helpers';
+import {
+  resolvePricingType,
+  resolvePricingTemplate,
+} from '../../helpers/pricingTypeRegistry';
 import { Modal } from '@douyinfe/semi-ui';
 import { UserContext } from '../../context/User';
 import { StatusContext } from '../../context/Status';
@@ -204,6 +208,11 @@ export const useModelPricingData = () => {
         m.vendor_icon = vendor.icon;
         m.vendor_description = vendor.description;
       }
+
+      // 派生 pricingType / pricingTemplate（前端单一真相源，按 model_name 前缀推导）
+      // mapping miss 的模型自动 fallback 到 quota_type=0/1，与改造前 100% 一致。
+      m.pricing_type = resolvePricingType(m.model_name, m.quota_type);
+      m.pricing_template = resolvePricingTemplate(m.model_name, m.quota_type);
     }
     models.sort((a, b) => {
       return a.quota_type - b.quota_type;
