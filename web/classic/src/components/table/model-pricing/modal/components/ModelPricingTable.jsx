@@ -66,18 +66,25 @@ const ModelPricingTable = ({
       const groupRatioValue =
         groupRatio && groupRatio[group] ? groupRatio[group] : 1;
 
-      return {
-        key: group,
-        group: group,
-        ratio: groupRatioValue,
-        billingType:
-          modelData?.billing_mode === 'tiered_expr'
-            ? t('动态计费')
+      // 计费类型 Tag 文案：动态计费优先，其次走 pricing_template.label（如"按秒计费"），
+      // mapping miss 时 fallback 到 quota_type=0/1 原文案
+      const templateLabel = modelData?.pricing_template?.label;
+      const billingTypeText =
+        modelData?.billing_mode === 'tiered_expr'
+          ? t('动态计费')
+          : templateLabel
+            ? t(templateLabel)
             : modelData?.quota_type === 0
               ? t('按量计费')
               : modelData?.quota_type === 1
                 ? t('按次计费')
-                : '-',
+                : '-';
+
+      return {
+        key: group,
+        group: group,
+        ratio: groupRatioValue,
+        billingType: billingTypeText,
         priceItems: getModelPriceItems(priceData, t, siteDisplayType),
       };
     });
@@ -115,9 +122,13 @@ const ModelPricingTable = ({
       title: t('计费类型'),
       dataIndex: 'billingType',
       render: (text) => {
+        // 5 种 pricingType + 动态计费 各自配色
         let color = 'white';
         if (text === t('按量计费')) color = 'violet';
         else if (text === t('按次计费')) color = 'teal';
+        else if (text === t('按秒计费')) color = 'cyan';
+        else if (text === t('按分钟计费')) color = 'green';
+        else if (text === t('按字符计费')) color = 'orange';
         else if (text === t('动态计费')) color = 'amber';
         return (
           <Tag color={color} size='small' shape='circle'>
