@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React from 'react';
-import { Avatar, Card, Table, Tag, Typography } from '@douyinfe/semi-ui';
+import { Avatar, Card, Tag, Typography } from '@douyinfe/semi-ui';
 import { IconCalendarClock } from '@douyinfe/semi-icons';
 
 const { Text } = Typography;
@@ -61,34 +61,6 @@ const BillingFormulaCard = ({ model, usedGroupRatio, t }) => {
           <div className='font-mono text-sm bg-gray-50 p-2 rounded text-gray-800'>
             {detail.formula}
           </div>
-
-          {detail.resolutionTable && (
-            <div>
-              <Text strong size='small' className='block mb-1'>
-                {t('分辨率倍率表')}
-              </Text>
-              <Table
-                dataSource={Object.entries(detail.resolutionTable).map(
-                  ([res, ratio]) => ({ key: res, res, ratio }),
-                )}
-                columns={[
-                  { title: t('分辨率'), dataIndex: 'res' },
-                  {
-                    title: t('倍率'),
-                    dataIndex: 'ratio',
-                    render: (r) => (
-                      <Tag color='blue' size='small' shape='circle'>
-                        {r}x
-                      </Tag>
-                    ),
-                  },
-                ]}
-                pagination={false}
-                size='small'
-                bordered={false}
-              />
-            </div>
-          )}
 
           {detail.note && (
             <Text type='tertiary' size='small'>

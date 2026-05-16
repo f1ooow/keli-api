@@ -42,6 +42,24 @@ export function resolveResolutionRatios(modelName) {
   return RESOLUTION_RATIOS[modelName] || null;
 }
 
+// 给 per_second 模型按分辨率倍率算出每档绝对价（含 group_ratio）。
+// displayPrice 由调用方注入（带 currency / 充值汇率处理），保持单一 formatter。
+// 返回 [{ resolution: '720P', ratio: 1, priceLabel: '¥1.530' }, ...] 或 null。
+export function resolveResolutionPriceRows(model, usedGroupRatio, displayPrice) {
+  const ratios = resolveResolutionRatios(model?.model_name);
+  if (!ratios) return null;
+  const basePrice = Number(model.model_price) || 0;
+  const gr = Number(usedGroupRatio) || 1;
+  return Object.entries(ratios).map(([resolution, ratio]) => {
+    const priceUSD = basePrice * ratio * gr;
+    return {
+      resolution,
+      ratio,
+      priceLabel: typeof displayPrice === 'function' ? displayPrice(priceUSD) : `${priceUSD}`,
+    };
+  });
+}
+
 // per_character 模型的字符价常数（与 newapi 后端 relay/helper/price.go 的 RPL/charRatio 对齐）
 const CHARACTER_PRICE_CONST = 0.002;
 

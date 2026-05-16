@@ -27,6 +27,7 @@ import {
 } from '../constants/playground.constants';
 import { TABLE_COMPACT_MODES_KEY } from '../constants';
 import { MOBILE_BREAKPOINT } from '../hooks/common/useIsMobile';
+import { resolveResolutionPriceRows } from './pricingTypeRegistry';
 
 const HTMLToastContent = ({ htmlContent }) => {
   return <div dangerouslySetInnerHTML={{ __html: htmlContent }} />;
@@ -752,11 +753,19 @@ export const calculateModelPrice = ({
     const priceUSD = parseFloat(record.model_price) * usedGroupRatio;
     const displayVal = displayPrice(priceUSD);
 
+    // per_second 模型：算出每个分辨率的绝对价（含 group_ratio + 分辨率倍率），
+    // 用于价格列内嵌"分辨率→价格"小表（截图风格）
+    const resolutionRows =
+      record.pricing_type === 'per_second'
+        ? resolveResolutionPriceRows(record, usedGroupRatio, displayPrice)
+        : null;
+
     return {
       price: displayVal,
       isPerToken: false,
       isTokensDisplay: false,
       pricingTemplate: record.pricing_template,
+      resolutionRows,
       usedGroup,
       usedGroupRatio,
     };
@@ -891,6 +900,17 @@ export const getModelPriceItems = (
   // 非 token 模型（按次 / 按秒 / 按分钟 / 按字符）— 单位由 pricing_template.unit 决定，
   // mapping miss 的模型 fallback 到 "次"（与改造前行为一致）
   const unit = priceData.pricingTemplate?.unit || '次';
+
+  // per_second 模型：每个分辨率一行（绝对价已含 group_ratio + 分辨率倍率）
+  if (Array.isArray(priceData.resolutionRows) && priceData.resolutionRows.length > 0) {
+    return priceData.resolutionRows.map((row) => ({
+      key: `res-${row.resolution}`,
+      label: row.resolution,
+      value: row.priceLabel,
+      suffix: ` / ${t(unit)}`,
+    }));
+  }
+
   const labelKey = priceData.pricingTemplate?.label
     ? `${priceData.pricingTemplate.label}的单价`
     : '模型价格';
