@@ -748,7 +748,7 @@ export const calculateModelPrice = ({
   }
 
   if (record.quota_type === 1) {
-    // 按次计费
+    // 按次计费（实际可能是按秒/按分钟/按字符的视图，单位由 pricing_template 决定）
     const priceUSD = parseFloat(record.model_price) * usedGroupRatio;
     const displayVal = displayPrice(priceUSD);
 
@@ -756,6 +756,7 @@ export const calculateModelPrice = ({
       price: displayVal,
       isPerToken: false,
       isTokensDisplay: false,
+      pricingTemplate: record.pricing_template,
       usedGroup,
       usedGroupRatio,
     };
@@ -766,6 +767,7 @@ export const calculateModelPrice = ({
     price: '-',
     isPerToken: false,
     isTokensDisplay: false,
+    pricingTemplate: record.pricing_template,
     usedGroup,
     usedGroupRatio,
   };
@@ -886,12 +888,18 @@ export const getModelPriceItems = (
     ].filter((item) => item.value !== null && item.value !== undefined && item.value !== '');
   }
 
+  // 非 token 模型（按次 / 按秒 / 按分钟 / 按字符）— 单位由 pricing_template.unit 决定，
+  // mapping miss 的模型 fallback 到 "次"（与改造前行为一致）
+  const unit = priceData.pricingTemplate?.unit || '次';
+  const labelKey = priceData.pricingTemplate?.label
+    ? `${priceData.pricingTemplate.label}的单价`
+    : '模型价格';
   return [
     {
       key: 'fixed',
-      label: t('模型价格'),
+      label: t(labelKey),
       value: priceData.price,
-      suffix: ` / ${t('次')}`,
+      suffix: ` / ${t(unit)}`,
     },
   ].filter((item) => item.value !== null && item.value !== undefined && item.value !== '');
 };
