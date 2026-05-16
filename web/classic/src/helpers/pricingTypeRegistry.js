@@ -92,7 +92,7 @@ export const PRICING_TEMPLATES = {
       return {
         formula: `${formatNumber(price)} 元 × 分组倍率(${formatNumber(gr)})`,
         examples: [
-          `单次调用：${formatNumber(price)} × ${formatNumber(gr)} = ${formatNumber(price * gr)} 元`,
+          `单次调用：${formatNumber(price)} × ${formatNumber(gr)} = ${formatNumber(price * gr, 2)} 元`,
         ],
       };
     },
@@ -111,12 +111,12 @@ export const PRICING_TEMPLATES = {
       if (ratios) {
         Object.entries(ratios).forEach(([res, r]) => {
           examples.push(
-            `${res} 5秒：${formatNumber(price)} × 5 × ${formatNumber(r)} × ${formatNumber(gr)} = ${formatNumber(price * 5 * r * gr)} 元`,
+            `${res} 5秒：${formatNumber(price)} × 5 × ${formatNumber(r)} × ${formatNumber(gr)} = ${formatNumber(price * 5 * r * gr, 2)} 元`,
           );
         });
       } else {
         examples.push(
-          `5秒：${formatNumber(price)} × 5 × ${formatNumber(gr)} = ${formatNumber(price * 5 * gr)} 元（无分辨率倍率表）`,
+          `5秒：${formatNumber(price)} × 5 × ${formatNumber(gr)} = ${formatNumber(price * 5 * gr, 2)} 元（无分辨率倍率表）`,
         );
       }
       return {
@@ -138,8 +138,8 @@ export const PRICING_TEMPLATES = {
       return {
         formula: `${formatNumber(price)} 元/分钟 × 分钟数 × 分组倍率(${formatNumber(gr)})`,
         examples: [
-          `1 分钟：${formatNumber(price)} × 1 × ${formatNumber(gr)} = ${formatNumber(price * gr)} 元`,
-          `5 分钟：${formatNumber(price)} × 5 × ${formatNumber(gr)} = ${formatNumber(price * 5 * gr)} 元`,
+          `1 分钟：${formatNumber(price)} × 1 × ${formatNumber(gr)} = ${formatNumber(price * gr, 2)} 元`,
+          `5 分钟：${formatNumber(price)} × 5 × ${formatNumber(gr)} = ${formatNumber(price * 5 * gr, 2)} 元`,
         ],
       };
     },
@@ -158,8 +158,8 @@ export const PRICING_TEMPLATES = {
         formula: `${formatNumber(ratio)} × 字符数 × ${CHARACTER_PRICE_CONST} × 分组倍率(${formatNumber(gr)})`,
         note: '汉字按 2 字符计（newapi 后端字符计数规则）',
         examples: [
-          `100 字符：${formatNumber(ratio)} × 100 × ${CHARACTER_PRICE_CONST} × ${formatNumber(gr)} = ${formatNumber(perChar * 100)} 元`,
-          `1000 字符：${formatNumber(ratio)} × 1000 × ${CHARACTER_PRICE_CONST} × ${formatNumber(gr)} = ${formatNumber(perChar * 1000)} 元`,
+          `100 字符：${formatNumber(ratio)} × 100 × ${CHARACTER_PRICE_CONST} × ${formatNumber(gr)} = ${formatNumber(perChar * 100, 4)} 元`,
+          `1000 字符：${formatNumber(ratio)} × 1000 × ${CHARACTER_PRICE_CONST} × ${formatNumber(gr)} = ${formatNumber(perChar * 1000, 4)} 元`,
         ],
       };
     },

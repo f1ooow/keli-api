@@ -656,6 +656,23 @@ export const calculateModelPrice = ({
     };
   }
 
+  // 2.5 per_character 模型：后端 quota_type=0 用 model_ratio 配置，但语义是按字符计费。
+  // 单价 = ratio × 0.002 × group_ratio（元 / 字符）。展示用 "元 / 1K 字符" 更直观。
+  if (record.pricing_type === 'per_character') {
+    const ratio = Number(record.model_ratio) || 0;
+    const perCharUSD = ratio * 0.002 * usedGroupRatio;
+    const per1KCharsUSD = perCharUSD * 1000;
+    return {
+      price: displayPrice(per1KCharsUSD),
+      isPerToken: false,
+      isTokensDisplay: false,
+      pricingTemplate: record.pricing_template,
+      perCharacterPrice: true,
+      usedGroup,
+      usedGroupRatio,
+    };
+  }
+
   // 3. 根据计费类型计算价格
   if (record.quota_type === 0) {
     // 按量计费
@@ -909,6 +926,18 @@ export const getModelPriceItems = (
       value: row.priceLabel,
       suffix: ` / ${t(unit)}`,
     }));
+  }
+
+  // per_character 模型：calculateModelPrice 已按 1K 字符算好，suffix 用 "/ 1K 字符"
+  if (priceData.perCharacterPrice) {
+    return [
+      {
+        key: 'per-character',
+        label: t('按字符计费的单价'),
+        value: priceData.price,
+        suffix: ` / 1K ${t('字符')}`,
+      },
+    ].filter((item) => item.value !== null && item.value !== undefined && item.value !== '');
   }
 
   const labelKey = priceData.pricingTemplate?.label
