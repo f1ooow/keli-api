@@ -150,6 +150,12 @@ func SetRelayRouter(router *gin.Engine) {
 			controller.Relay(c, types.RelayFormatOpenAI)
 		})
 
+		// MiniMax extended endpoints: 私有路径，由 MiniMax 渠道透明转发
+		// (不污染 OpenAI files 协议语义；只新增 /v1/files/upload)
+		httpRouter.POST("/files/upload", controller.RelayMiniMaxExtended)
+		httpRouter.POST("/voice_clone", controller.RelayMiniMaxExtended)
+		httpRouter.POST("/music_generation", controller.RelayMiniMaxExtended)
+
 		// not implemented
 		httpRouter.POST("/images/variations", controller.RelayNotImplemented)
 		httpRouter.GET("/files", controller.RelayNotImplemented)

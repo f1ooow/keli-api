@@ -376,6 +376,29 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 			}
 		}
 	}
+	// MiniMax 扩展端点：files/upload (multipart) / voice_clone (JSON) / music_generation (JSON)
+	if strings.HasPrefix(c.Request.URL.Path, "/v1/files/upload") {
+		// multipart：model 字段从 form 抽取；CCS 端在 multipart 里带 "model" 字段
+		contentType := c.ContentType()
+		if slices.Contains([]string{gin.MIMEPOSTForm, gin.MIMEMultipartPOSTForm}, contentType) {
+			if form, formErr := common.ParseMultipartFormReusable(c); formErr == nil {
+				if vals, ok := form.Value["model"]; ok && len(vals) > 0 {
+					modelRequest.Model = vals[0]
+				}
+			}
+		}
+		// 若用户未指定 model，使用 MiniMax 文件上传的默认占位模型
+		modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "minimax-files-upload")
+		c.Set("relay_mode", relayconstant.RelayModeMiniMaxFilesUpload)
+	}
+	if strings.HasPrefix(c.Request.URL.Path, "/v1/voice_clone") {
+		// model 字段由前面的 getModelFromRequest 已抽取；未指定时填默认值
+		modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "minimax-voice-clone")
+		c.Set("relay_mode", relayconstant.RelayModeMiniMaxVoiceClone)
+	}
+	if strings.HasPrefix(c.Request.URL.Path, "/v1/music_generation") {
+		c.Set("relay_mode", relayconstant.RelayModeMiniMaxMusic)
+	}
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/audio") {
 		relayMode := relayconstant.RelayModeAudioSpeech
 		if strings.HasPrefix(c.Request.URL.Path, "/v1/audio/speech") {

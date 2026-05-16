@@ -91,6 +91,12 @@ func Path2RelayMode(path string) int {
 		relayMode = RelayModeRerank
 	} else if strings.HasPrefix(path, "/v1/realtime") {
 		relayMode = RelayModeRealtime
+	} else if strings.HasPrefix(path, "/v1/files/upload") {
+		relayMode = RelayModeMiniMaxFilesUpload
+	} else if strings.HasPrefix(path, "/v1/voice_clone") {
+		relayMode = RelayModeMiniMaxVoiceClone
+	} else if strings.HasPrefix(path, "/v1/music_generation") {
+		relayMode = RelayModeMiniMaxMusic
 	} else if strings.HasPrefix(path, "/v1beta/models") || strings.HasPrefix(path, "/v1/models") {
 		relayMode = RelayModeGemini
 	} else if strings.HasPrefix(path, "/mj") {
