@@ -27,7 +27,7 @@ import {
 } from '../constants/playground.constants';
 import { TABLE_COMPACT_MODES_KEY } from '../constants';
 import { MOBILE_BREAKPOINT } from '../hooks/common/useIsMobile';
-import { resolveResolutionPriceRows } from './pricingTypeRegistry';
+import { resolveResolutionPriceRows, resolveVideoTierRows } from './pricingTypeRegistry';
 
 const HTMLToastContent = ({ htmlContent }) => {
   return <div dangerouslySetInnerHTML={{ __html: htmlContent }} />;
@@ -771,10 +771,16 @@ export const calculateModelPrice = ({
     const displayVal = displayPrice(priceUSD);
 
     // per_second 模型：算出每个分辨率的绝对价（含 group_ratio + 分辨率倍率），
-    // 用于价格列内嵌"分辨率→价格"小表（截图风格）
+    // 用于价格列内嵌"分辨率→价格"小表
     const resolutionRows =
       record.pricing_type === 'per_second'
         ? resolveResolutionPriceRows(record, usedGroupRatio, displayPrice)
+        : null;
+
+    // per_video_tier 模型（Hailuo 分档）：算出每个 (resolution × duration) 档位的绝对价
+    const videoTierRows =
+      record.pricing_type === 'per_video_tier'
+        ? resolveVideoTierRows(record, usedGroupRatio, displayPrice)
         : null;
 
     return {
@@ -783,6 +789,7 @@ export const calculateModelPrice = ({
       isTokensDisplay: false,
       pricingTemplate: record.pricing_template,
       resolutionRows,
+      videoTierRows,
       usedGroup,
       usedGroupRatio,
     };
@@ -925,6 +932,16 @@ export const getModelPriceItems = (
       label: row.resolution,
       value: row.priceLabel,
       suffix: ` / ${t(unit)}`,
+    }));
+  }
+
+  // per_video_tier 模型（Hailuo）：每个 (resolution × duration) 档位一行
+  if (Array.isArray(priceData.videoTierRows) && priceData.videoTierRows.length > 0) {
+    return priceData.videoTierRows.map((row) => ({
+      key: `tier-${row.tier}`,
+      label: `${row.resolution} ${row.duration}s`,
+      value: row.priceLabel,
+      suffix: ' / 次',
     }));
   }
 

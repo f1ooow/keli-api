@@ -176,6 +176,7 @@ const PricingCardView = ({
         按秒计费: 'cyan',
         按分钟计费: 'green',
         按字符计费: 'orange',
+        按视频档位计费: 'pink',
       };
       billingTag = (
         <Tag

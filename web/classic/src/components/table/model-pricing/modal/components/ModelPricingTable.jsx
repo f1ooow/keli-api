@@ -130,6 +130,7 @@ const ModelPricingTable = ({
         else if (text === t('按秒计费')) color = 'cyan';
         else if (text === t('按分钟计费')) color = 'green';
         else if (text === t('按字符计费')) color = 'orange';
+        else if (text === t('按视频档位计费')) color = 'pink';
         else if (text === t('动态计费')) color = 'amber';
         return (
           <Tag color={color} size='small' shape='circle'>

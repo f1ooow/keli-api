@@ -42,6 +42,52 @@ export function resolveResolutionRatios(modelName) {
   return RESOLUTION_RATIOS[modelName] || null;
 }
 
+// 按 newapi 后端 relay/channel/task/hailuo/constants.go HailuoTierRatios 复刻的"分辨率 × 时长"分档倍率。
+// 维护节奏：upstream 改 HailuoTierRatios 时同步修改。tier key: "<Resolution>-<Duration>" 如 "768P-6"。
+const HAILUO_TIER_RATIOS = {
+  'MiniMax-Hailuo-2.3-Fast': {
+    '768P-6': 1.0,
+    '768P-10': 2.25 / 1.35,
+    '1080P-6': 2.31 / 1.35,
+  },
+  'MiniMax-Hailuo-2.3': {
+    '768P-6': 1.0,
+    '768P-10': 2.0,
+    '1080P-6': 1.75,
+  },
+  'MiniMax-Hailuo-02': {
+    '768P-6': 1.0,
+    '768P-10': 2.0,
+    '1080P-6': 1.75,
+    '512P-6': 0.3,
+    '512P-10': 0.5,
+  },
+};
+
+export function resolveHailuoTierRatios(modelName) {
+  return HAILUO_TIER_RATIOS[modelName] || null;
+}
+
+// 给 per_video_tier 模型按档位算出每档绝对价（含 group_ratio）。
+// 返回 [{ tier: '768P-6', resolution: '768P', duration: 6, ratio: 1.0, priceLabel: '¥1.35' }, ...]
+export function resolveVideoTierRows(model, usedGroupRatio, displayPrice) {
+  const tiers = resolveHailuoTierRatios(model?.model_name);
+  if (!tiers) return null;
+  const basePrice = Number(model.model_price) || 0;
+  const gr = Number(usedGroupRatio) || 1;
+  return Object.entries(tiers).map(([tier, ratio]) => {
+    const [resolution, durationStr] = tier.split('-');
+    const priceUSD = basePrice * ratio * gr;
+    return {
+      tier,
+      resolution,
+      duration: Number(durationStr),
+      ratio,
+      priceLabel: typeof displayPrice === 'function' ? displayPrice(priceUSD) : `${priceUSD}`,
+    };
+  });
+}
+
 // 给 per_second 模型按分辨率倍率算出每档绝对价（含 group_ratio）。
 // displayPrice 由调用方注入（带 currency / 充值汇率处理），保持单一 formatter。
 // 返回 [{ resolution: '720P', ratio: 1, priceLabel: '¥1.530' }, ...] 或 null。
@@ -69,6 +115,7 @@ export const PRICING_TYPES = {
   PER_SECOND: 'per_second',
   PER_MINUTE: 'per_minute',
   PER_CHARACTER: 'per_character',
+  PER_VIDEO_TIER: 'per_video_tier',
 };
 
 export const PRICING_TEMPLATES = {
@@ -144,6 +191,28 @@ export const PRICING_TEMPLATES = {
       };
     },
   },
+  per_video_tier: {
+    type: 'per_video_tier',
+    label: '按视频档位计费',
+    unit: '次',
+    factors: ['model_price', 'tier_ratio', 'group_ratio'],
+    formula: 'ModelPrice(基准价) × 档位倍率(分辨率+时长) × 分组倍率',
+    renderFormula: (model, groupRatio) => {
+      const gr = Number(groupRatio) || 1;
+      const price = Number(model.model_price) || 0;
+      const tiers = resolveHailuoTierRatios(model.model_name);
+      if (!tiers) return null;
+      const examples = Object.entries(tiers).map(([tier, r]) => {
+        const [res, dur] = tier.split('-');
+        return `${res} ${dur}秒：${formatNumber(price)} × ${formatNumber(r)} × ${formatNumber(gr)} = ${formatNumber(price * r * gr, 2)} 元`;
+      });
+      return {
+        formula: `${formatNumber(price)} 元(768P 6s 基准) × 档位倍率 × 分组倍率(${formatNumber(gr)})`,
+        note: '档位倍率按 MiniMax 官方价表 (resolution × duration 组合) 配置',
+        examples,
+      };
+    },
+  },
   per_character: {
     type: 'per_character',
     label: '按字符计费',
@@ -178,8 +247,9 @@ export const MODEL_PRICING_RULES = [
 
   // 按秒视频（happyhorse 家族 — fulladaptor 引入）
   { match: (n) => n.startsWith('happyhorse-'), type: PRICING_TYPES.PER_SECOND },
-  // 预留：未来 Hailuo / Seedance / Wan 视频按秒计费时在此添加：
-  // { match: (n) => n.startsWith('hailuo-'), type: PRICING_TYPES.PER_SECOND },
+  // 按档位视频（MiniMax Hailuo 家族 — 分辨率+时长 组合查表）
+  { match: (n) => n.startsWith('MiniMax-Hailuo-'), type: PRICING_TYPES.PER_VIDEO_TIER },
+  // 预留：未来 Seedance / Wan 视频按秒计费时在此添加：
   // { match: (n) => n.startsWith('doubao-seedance-'), type: PRICING_TYPES.PER_SECOND },
 
   // 按字符 TTS
