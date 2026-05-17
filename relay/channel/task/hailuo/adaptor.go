@@ -300,3 +300,36 @@ func containsInt(slice []int, item int) bool {
 	}
 	return false
 }
+
+// EstimateBilling 根据请求的 resolution + duration 算出档位倍率。
+// quota = ModelPrice × tier_ratio × group_ratio × QuotaPerUnit
+// ModelPrice 配 768P 6s 基准价；未命中档位返回 nil 走 ModelPrice × 1。
+func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInfo) map[string]float64 {
+	taskReq, err := relaycommon.GetTaskRequest(c)
+	if err != nil {
+		return nil
+	}
+
+	modelConfig := GetModelConfig(info.UpstreamModelName)
+	duration := DefaultDuration
+	if taskReq.Duration > 0 {
+		duration = taskReq.Duration
+	}
+	resolution := modelConfig.DefaultResolution
+	if taskReq.Size != "" {
+		resolution = a.parseResolutionFromSize(taskReq.Size, modelConfig)
+	}
+
+	tierKey := fmt.Sprintf("%s-%d", resolution, duration)
+	modelTiers, ok := HailuoTierRatios[info.UpstreamModelName]
+	if !ok {
+		return nil
+	}
+	ratio, ok := modelTiers[tierKey]
+	if !ok {
+		return nil
+	}
+	return map[string]float64{
+		fmt.Sprintf("hailuo-tier-%s", tierKey): ratio,
+	}
+}
