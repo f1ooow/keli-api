@@ -57,6 +57,7 @@ const (
 	ChannelTypeCodex          = 57
 	ChannelTypeAdvancedCustom = 58
 	ChannelTypeViapi          = 100
+	ChannelTypeVolcVod        = 101
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
 
 )
@@ -163,6 +164,7 @@ var ChannelBaseURLs = []string{
 	"",                                          //98
 	"",                                          //99
 	"",                                          //100 viapi: per-product endpoint, base URL not used
+	"https://vod.volcengineapi.com",             //101 volcvod
 }
 
 var ChannelTypeNames = map[int]string{
@@ -222,6 +224,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeCodex:          "ChatGPT Subscription (Codex)",
 	ChannelTypeAdvancedCustom: "Advanced Custom",
 	ChannelTypeViapi:          "AliViapi",
+	ChannelTypeVolcVod:        "VolcVOD",
 }
 
 func GetChannelTypeName(channelType int) string {
