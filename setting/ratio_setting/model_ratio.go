@@ -297,6 +297,7 @@ var defaultModelPrice = map[string]float64{
 	"veo-3.0-fast-generate-001":      0.15,
 	"veo-3.1-generate-preview":       0.4,
 	"veo-3.1-fast-generate-preview":  0.15,
+	"volc-lens-lqir":                 0.01, // 火山引擎 lens_lqir 图像增强 / 高清放大 (per-call, ~$0.01)
 }
 
 var defaultAudioRatio = map[string]float64{
