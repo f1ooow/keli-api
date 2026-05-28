@@ -47,6 +47,11 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 }
 
 func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.AudioRequest) (io.Reader, error) {
+	if info.RelayMode == constant.RelayModeAudioTranscription {
+		// 录音文件识别 (Doubao ASR) — multipart audio in; SRT/whisper JSON out.
+		// The real upstream call happens inside DoRequest (after VOD upload).
+		return convertAudioRequestForASR(c, info, request)
+	}
 	if info.RelayMode != constant.RelayModeAudioSpeech {
 		return nil, errors.New("unsupported audio relay mode")
 	}
@@ -81,7 +86,6 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 			ReqID:     generateRequestID(),
 			Text:      request.Input,
 			Operation: "submit",
-			Model:     info.OriginModelName,
 		},
 	}
 
@@ -278,6 +282,11 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 				return "wss://openspeech.bytedance.com/api/v1/tts/ws_binary", nil
 			}
 			return fmt.Sprintf("%s/v1/audio/speech", baseUrl), nil
+		case constant.RelayModeAudioTranscription:
+			// Routed internally inside DoRequest (VOD upload + Doubao ASR submit).
+			// Returning a sentinel keeps the relay framework happy if it ever
+			// inspects the URL for logging.
+			return "https://openspeech.bytedance.com/api/v3/auc/bigmodel/submit", nil
 		default:
 		}
 	}
@@ -293,6 +302,11 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 			req.Set("Authorization", "Bearer;"+parts[1])
 		}
 		req.Set("Content-Type", "application/json")
+		return nil
+	} else if info.RelayMode == constant.RelayModeAudioTranscription {
+		// ASR path doesn't go through standard DoApiRequest; headers are
+		// set inline inside doASRRequest (X-Api-Key / X-Api-Resource-Id /
+		// X-Api-Request-Id / X-Api-Sequence). Skip the default Bearer.
 		return nil
 	} else if info.RelayMode == constant.RelayModeImagesEdits {
 		req.Set("Content-Type", gin.MIMEJSON)
@@ -330,6 +344,12 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
+	if info.RelayMode == constant.RelayModeAudioTranscription {
+		// Self-contained ASR pipeline: VOD upload → Doubao ASR submit → poll.
+		// Returns a synthetic *http.Response with the OpenAI Whisper-compatible
+		// JSON body so DoResponse can stream it back to the client uniformly.
+		return doASRRequest(c, info, defaultGetOtherInfo)
+	}
 	if info.RelayMode == constant.RelayModeAudioSpeech {
 		baseUrl := info.ChannelBaseUrl
 		if baseUrl == "" {
@@ -351,6 +371,14 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 			adaptor := claude.Adaptor{}
 			return adaptor.DoResponse(c, resp, info)
 		}
+	}
+
+	if info.RelayMode == constant.RelayModeAudioTranscription {
+		usageOut, asrErr := handleASRResponse(c, resp, info)
+		if asrErr != nil {
+			return nil, asrErr
+		}
+		return usageOut, nil
 	}
 
 	if info.RelayMode == constant.RelayModeAudioSpeech {

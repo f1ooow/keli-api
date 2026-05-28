@@ -48,9 +48,37 @@ func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.TaskError) {
 	var req relaycommon.TaskSubmitReq
-	if err := common.UnmarshalBodyReusable(c, &req); err != nil {
-		return wrapTaskError(err, "invalid_json", http.StatusBadRequest, true)
+
+	// Two input shapes supported (backwards-compatible):
+	//
+	//   1. JSON body with `model` + `input_reference: <Vid>` — original path,
+	//      CCS server uploads first then submits the Vid here.
+	//   2. multipart/form-data with `model` form field + `file` binary part —
+	//      this adaptor auto-uploads to VOD and substitutes the resulting
+	//      Vid into `input_reference`. Useful when the caller does NOT have
+	//      VOD credentials of its own (newapi owns the channel's ak/sk).
+	contentType := c.Request.Header.Get("Content-Type")
+	isMultipart := strings.Contains(contentType, "multipart/form-data")
+
+	if isMultipart {
+		if err := c.Request.ParseMultipartForm(64 << 20); err != nil {
+			return wrapTaskError(errors.Wrap(err, "parse multipart form"), "invalid_multipart", http.StatusBadRequest, true)
+		}
+		req.Model = strings.TrimSpace(c.Request.PostFormValue("model"))
+		req.InputReference = strings.TrimSpace(c.Request.PostFormValue("input_reference"))
+		// Optional metadata (audioSide etc.) — caller passes as JSON string.
+		if metaStr := c.Request.PostFormValue("metadata"); metaStr != "" {
+			var meta map[string]interface{}
+			if err := common.Unmarshal([]byte(metaStr), &meta); err == nil {
+				req.Metadata = meta
+			}
+		}
+	} else {
+		if err := common.UnmarshalBodyReusable(c, &req); err != nil {
+			return wrapTaskError(err, "invalid_json", http.StatusBadRequest, true)
+		}
 	}
+
 	if strings.TrimSpace(req.Model) == "" {
 		return wrapTaskError(fmt.Errorf("model field is required"), "missing_model", http.StatusBadRequest, true)
 	}
@@ -58,15 +86,97 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	if !ok {
 		return wrapTaskError(fmt.Errorf("unsupported volcvod model: %s", req.Model), "unsupported_model", http.StatusBadRequest, true)
 	}
-	// VOD 输入必须是 Vid（点播空间内的视频 ID），由 CCS server 提前上传并提供
+
+	// If multipart and no input_reference, auto-upload the `file` part to VOD
+	// and substitute the resulting Vid.
+	if isMultipart && req.InputReference == "" {
+		vid, uploadErr := a.uploadMultipartFileToVOD(c)
+		if uploadErr != nil {
+			return uploadErr
+		}
+		req.InputReference = vid
+	}
+
+	// VOD 输入必须是 Vid（点播空间内的视频 ID）。Now satisfied by either:
+	//   - JSON body input_reference, or
+	//   - multipart auto-upload result above.
 	if strings.TrimSpace(req.InputReference) == "" {
-		return wrapTaskError(fmt.Errorf("input_reference (火山 Vid) is required"), "missing_input_reference", http.StatusBadRequest, true)
+		return wrapTaskError(fmt.Errorf("input_reference (火山 Vid) is required (provide JSON input_reference or multipart 'file' part)"), "missing_input_reference", http.StatusBadRequest, true)
 	}
 	// 把 ActionTable 的 TaskType 暂存到 info.Action（复用 newapi 现有约定）
 	info.Action = cfg.TaskType
 	c.Set("task_request", req)
 	c.Set("volcvod_action", cfg) // 缓存 cfg 给 BuildRequest* 用
 	return nil
+}
+
+// uploadMultipartFileToVOD reads the `file` part from the multipart form and
+// uploads it to Volcengine VOD using the channel's ak/sk. Returns the new Vid
+// or a wrapped TaskError suitable for ValidateRequestAndSetAction.
+//
+// The VOD `SpaceName` is read from an optional `space` form field, falling
+// back to the channel's `OtherInfo.vod_space`. We require it explicitly
+// because there's no "default" space in Volcengine VOD.
+func (a *TaskAdaptor) uploadMultipartFileToVOD(c *gin.Context) (string, *dto.TaskError) {
+	if a.accessKeyId == "" || a.accessKeySecret == "" {
+		return "", wrapTaskError(fmt.Errorf("volcvod: channel api_key must be '<AccessKeyId>:<AccessKeySecret>' to support multipart upload"), "invalid_channel_key", http.StatusBadRequest, true)
+	}
+
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		return "", wrapTaskError(errors.Wrap(err, "read multipart 'file' part"), "missing_file_part", http.StatusBadRequest, true)
+	}
+	defer file.Close()
+
+	buf := &bytes.Buffer{}
+	if _, err := io.Copy(buf, file); err != nil {
+		return "", wrapTaskError(errors.Wrap(err, "copy 'file' part"), "read_file_failed", http.StatusInternalServerError, false)
+	}
+
+	filename := ""
+	if header != nil {
+		filename = header.Filename
+	}
+
+	// SpaceName: form field 'space' wins; otherwise channel.OtherInfo.vod_space.
+	space := strings.TrimSpace(c.Request.PostFormValue("space"))
+	if space == "" {
+		// Best-effort: fetch the channel record to read OtherInfo.vod_space.
+		ch, chErr := model.GetChannelById(c.GetInt("channel_id"), false)
+		if chErr == nil && ch != nil {
+			oi := ch.GetOtherInfo()
+			if oi != nil {
+				if v, ok := oi["vod_space"].(string); ok {
+					space = strings.TrimSpace(v)
+				}
+				if space == "" {
+					if v, ok := oi["vodSpace"].(string); ok {
+						space = strings.TrimSpace(v)
+					}
+				}
+			}
+		}
+	}
+	if space == "" {
+		return "", wrapTaskError(fmt.Errorf("volcvod multipart upload requires 'space' form field or channel OtherInfo.vod_space"), "missing_space", http.StatusBadRequest, true)
+	}
+
+	region := Region // "cn-north-1"
+	opts := VodUploadOpts{
+		SpaceName:     space,
+		Region:        region,
+		AccessKey:     a.accessKeyId,
+		SecretKey:     a.accessKeySecret,
+		FileName:      filename,
+		FileExtension: InferExtFromFilename(filename),
+	}
+	contentType := InferContentTypeFromFilename(filename)
+
+	res, uploadErr := UploadMediaToVOD(buf.Bytes(), opts, contentType)
+	if uploadErr != nil {
+		return "", wrapTaskError(uploadErr, "vod_upload_failed", http.StatusBadGateway, false)
+	}
+	return res.Vid, nil
 }
 
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
