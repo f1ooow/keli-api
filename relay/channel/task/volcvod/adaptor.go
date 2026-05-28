@@ -33,6 +33,22 @@ type TaskAdaptor struct {
 	accessKeyId     string
 	accessKeySecret string
 	apiKey          string // 原 key，格式 "<ak>:<sk>"
+
+	// Playback URL signing config, read from the channel's OtherInfo in Init.
+	// Used by the result side (ParseTaskResult) to turn the VOD product
+	// FileName into a fully-signed, directly-downloadable http(s) URL so the
+	// caller (CCS server) needs ZERO VOD credentials of its own.
+	//
+	//   playbackDomain  ← OtherInfo.vod_playback_domain  (e.g. "vod.example.com")
+	//   playbackScheme  ← OtherInfo.vod_playback_scheme   ("http" | "https", default "https")
+	//   urlAuthKey      ← OtherInfo.vod_url_auth_key      (CDN Type-A url-auth key; empty = no signing)
+	//
+	// Same adaptor instance is reused by the polling loop (service.updateVideoTasks
+	// calls Init once per channel, then ParseTaskResult per task), so stashing
+	// these on the struct in Init is safe — see service/task_polling.go.
+	playbackDomain string
+	playbackScheme string
+	urlAuthKey     string
 }
 
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
@@ -44,6 +60,41 @@ func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 		a.accessKeyId = strings.TrimSpace(parts[0])
 		a.accessKeySecret = strings.TrimSpace(parts[1])
 	}
+
+	// Load playback signing config from the channel's OtherInfo. info.ChannelId
+	// is set on both the submit path (RelayInfo.InitChannelMeta) and the polling
+	// path (service.updateVideoTasks sets info.ChannelId = channel.Id). A 0/absent
+	// channel id or missing OtherInfo simply leaves these empty → result side
+	// degrades to an unsigned URL (only valid if the space has url-auth off).
+	a.playbackScheme = "https"
+	if info.ChannelId > 0 {
+		if ch, chErr := model.GetChannelById(info.ChannelId, false); chErr == nil && ch != nil {
+			if oi := ch.GetOtherInfo(); oi != nil {
+				a.playbackDomain = pickOtherInfoString(oi, "vod_playback_domain", "vodPlaybackDomain")
+				if scheme := pickOtherInfoString(oi, "vod_playback_scheme", "vodPlaybackScheme"); scheme == "http" || scheme == "https" {
+					a.playbackScheme = scheme
+				}
+				a.urlAuthKey = pickOtherInfoString(oi, "vod_url_auth_key", "vodUrlAuthKey", "vod_auth_key", "urlAuthKey")
+			}
+		}
+	}
+}
+
+// pickOtherInfoString returns the first non-empty string value among keys.
+// Mirrors volcengine.pickString (the ASR-side reader) so OtherInfo key names
+// stay consistent across the two readers; see relay/channel/volcengine/vod_credentials.go.
+func pickOtherInfoString(m map[string]interface{}, keys ...string) string {
+	for _, k := range keys {
+		if v, ok := m[k]; ok {
+			if s, ok := v.(string); ok {
+				s = strings.TrimSpace(s)
+				if s != "" {
+					return s
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.TaskError) {
@@ -443,12 +494,21 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	case "success", "succeeded":
 		result.Status = model.TaskStatusSuccess
 		// TaskInfo 只有 Url / RemoteUrl / Reason / Progress 几个字段，不支持 Metadata。
-		// 我们用约定的 vod-erase:// 或 vod-audio:// scheme 编码所有信息，
-		// CCS server 端 volcvod driver 用 URL parser 解。
-		// 格式：
-		//   Erase:        vod-erase://<file_name>?vid=<vid>&duration=<s>&size=<bytes>
-		//   AudioExtract: vod-audio://<voice_fn>?bg=<bg_fn>&duration=<s>&voice_size=<b>&bg_size=<b>
-		result.Url = encodeVodResultUrl(r.Output.Task)
+		// 我们用约定的私有 scheme 编码所有信息，CCS server 端 volcvod driver 用
+		// URL parser 反向解析。
+		//
+		// 新契约（newapi 自带签名，CCS 零 VOD 凭据，直接下载签名 URL）：
+		//   Erase:        vod-result-erase://?video=<urlencoded signed http url>&duration=<s>
+		//   AudioExtract: vod-result-audio://?voice=<urlencoded signed>&bg=<urlencoded signed>&duration=<s>
+		//
+		// 签名所需 domain / scheme / url_auth_key 来自 channel OtherInfo（Init 阶段读入）。
+		// 若 OtherInfo 未配 playback domain，则退回旧的 vod-erase:// / vod-audio:// 编码
+		// （由持有 VOD 凭据的旧版 CCS 自行签名下载），保持向后兼容。
+		encoded, encErr := a.encodeSignedVodResultUrl(r.Output.Task)
+		if encErr != nil {
+			return nil, errors.Wrap(encErr, "encode signed vod result url")
+		}
+		result.Url = encoded
 	case "failed", "fail", "canceled":
 		result.Status = model.TaskStatusFailure
 		if r.Error != nil {
@@ -463,7 +523,78 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	return result, nil
 }
 
+// urlAuthSignTTLSeconds is the validity window for the playback auth_key we sign
+// into result URLs. 3600s gives CCS ample time to poll-then-download.
+const urlAuthSignTTLSeconds = 3600
+
+// encodeSignedVodResultUrl turns the VOD product FileName(s) into fully-signed,
+// directly-downloadable http(s) URL(s) and encodes them into a private scheme
+// the CCS server parses. This lets CCS download the product with ZERO VOD
+// credentials of its own — newapi owns the channel ak/sk + url-auth key.
+//
+// New contract:
+//
+//	Erase:        vod-result-erase://?video=<urlencoded signed url>&duration=<seconds>
+//	AudioExtract: vod-result-audio://?voice=<urlencoded signed>&bg=<urlencoded signed>&duration=<s>
+//
+// When the channel has no playback domain configured (a.playbackDomain == ""),
+// we cannot build a downloadable URL here, so we fall back to the LEGACY
+// encodeVodResultUrl (vod-erase:// / vod-audio://) which carries the raw
+// FileName + Vid for a credential-holding CCS to sign itself. This keeps the
+// rollout backwards-compatible: configure OtherInfo.vod_playback_domain on the
+// channel to flip on the zero-credential path.
+//
+// When playbackDomain is set but urlAuthKey is empty (space has url-auth off),
+// signVodPlaybackURL returns the URL unsigned — still directly downloadable.
+func (a *TaskAdaptor) encodeSignedVodResultUrl(task OutputTaskSpec) (string, error) {
+	if a.playbackDomain == "" {
+		// No domain → keep legacy behaviour for credential-holding callers.
+		return encodeVodResultUrl(task), nil
+	}
+
+	sign := func(fileName string) (string, error) {
+		raw := buildPlaybackURL(a.playbackScheme, a.playbackDomain, fileName)
+		return signVodPlaybackURL(raw, a.urlAuthKey, urlAuthSignTTLSeconds)
+	}
+
+	if task.Erase != nil {
+		signedVideo, err := sign(task.Erase.File.FileName)
+		if err != nil {
+			return "", errors.Wrap(err, "sign erase video url")
+		}
+		q := url.Values{}
+		q.Set("video", signedVideo)
+		if task.Erase.Duration > 0 {
+			q.Set("duration", fmt.Sprintf("%v", task.Erase.Duration))
+		}
+		return "vod-result-erase://?" + q.Encode(), nil
+	}
+
+	if task.AudioExtract != nil {
+		signedVoice, err := sign(task.AudioExtract.Voice.FileName)
+		if err != nil {
+			return "", errors.Wrap(err, "sign audio voice url")
+		}
+		signedBg, err := sign(task.AudioExtract.Background.FileName)
+		if err != nil {
+			return "", errors.Wrap(err, "sign audio background url")
+		}
+		q := url.Values{}
+		q.Set("voice", signedVoice)
+		q.Set("bg", signedBg)
+		if task.AudioExtract.Duration > 0 {
+			q.Set("duration", fmt.Sprintf("%v", task.AudioExtract.Duration))
+		}
+		return "vod-result-audio://?" + q.Encode(), nil
+	}
+
+	return "", nil
+}
+
 // encodeVodResultUrl 把 Output.Task 信息编码为 CCS server 能解析的 URL
+//
+// LEGACY 编码：仅在 channel 未配 playback domain 时作为兜底（持 VOD 凭据的旧版 CCS
+// 自行签名下载）。新的零凭据路径见 encodeSignedVodResultUrl。
 //
 // 之所以走 URL 编码而不是 metadata 字段，是因为 newapi 的 TaskInfo struct 只有
 // Url / RemoteUrl / Reason / Progress 几个透传字段。本编码格式作为 newapi <-> CCS
