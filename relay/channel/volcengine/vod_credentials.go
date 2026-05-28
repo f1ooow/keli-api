@@ -22,6 +22,7 @@
 //	vod_region          | vodRegion         → default "cn-north-1"
 //	vod_playback_domain | vodPlaybackDomain → e.g. "vod.robusta.top"
 //	vod_playback_scheme | vodPlaybackScheme → "http" | "https" (default "https")
+//	vod_url_auth_key    | vodUrlAuthKey     → CDN URL-auth Type-A key (optional; sign playback URL when space enforces url-auth)
 //
 // All values are strings in the OtherInfo JSON. The loader returns a typed
 // struct + a clear error when required fields are missing, so the caller
@@ -54,12 +55,13 @@ func defaultGetOtherInfo(channelID int) (map[string]interface{}, error) {
 // VodCredentials carries the VOD-specific fields extracted from a channel's
 // OtherInfo blob.
 type VodCredentials struct {
-	AccessKey       string
-	SecretKey       string
-	Space           string
-	Region          string // default "cn-north-1"
-	PlaybackDomain  string // optional (only ASR needs it to build the audio URL)
-	PlaybackScheme  string // default "https"
+	AccessKey      string
+	SecretKey      string
+	Space          string
+	Region         string // default "cn-north-1"
+	PlaybackDomain string // optional (only ASR needs it to build the audio URL)
+	PlaybackScheme string // default "https"
+	UrlAuthKey     string // optional CDN URL-auth Type-A key; when set, ASR signs the playback URL
 }
 
 // ErrVodCredentialsMissing is returned when the channel does not have VOD
@@ -90,6 +92,7 @@ func LoadVodCredentialsFromChannel(otherInfo map[string]interface{}) (*VodCreden
 	if scheme != "https" && scheme != "http" {
 		scheme = "https"
 	}
+	urlAuthKey := pickString(otherInfo, "vod_url_auth_key", "vodUrlAuthKey", "vod_auth_key", "urlAuthKey")
 
 	if ak == "" || sk == "" || space == "" {
 		return nil, fmt.Errorf("%w (have ak=%t sk=%t space=%t)", ErrVodCredentialsMissing, ak != "", sk != "", space != "")
@@ -101,6 +104,7 @@ func LoadVodCredentialsFromChannel(otherInfo map[string]interface{}) (*VodCreden
 		Region:         region,
 		PlaybackDomain: domain,
 		PlaybackScheme: scheme,
+		UrlAuthKey:     urlAuthKey,
 	}, nil
 }
 

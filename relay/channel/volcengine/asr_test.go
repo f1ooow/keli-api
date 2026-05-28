@@ -74,7 +74,7 @@ func TestUtterancesToSRT_Empty(t *testing.T) {
 
 func TestUtterancesToWhisperJSON(t *testing.T) {
 	q := &asrQueryResponse{}
-	q.AudioInfo.Duration = 3.2
+	q.AudioInfo.Duration = 3200 // doubao audio_info.duration is milliseconds
 	q.Result.Text = "你好世界 这是字幕"
 	q.Result.Utterances = []asrUtterance{
 		{Text: "你好世界", StartTime: 0, EndTime: 1500, Definite: true},

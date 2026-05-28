@@ -15,9 +15,9 @@
 //     JSON `{ text, language, duration, segments }`.
 //
 // API key format on the channel: "<APP_ID>|<ACCESS_TOKEN>", same as TTS
-// (`<APP_ID>|<ACCESS_TOKEN>`). The ACCESS_TOKEN is sent as X-Api-Key; the
-// APP_ID is used in `request.user.uid` so Volcengine logs can attribute the
-// call.
+// (`<APP_ID>|<ACCESS_TOKEN>`). The ACCESS_TOKEN is sent as X-Api-Access-Key
+// and the APP_ID as X-Api-App-Key (Doubao 录音文件识别 v3 requires both, no
+// X-Api-Sequence which is streaming-only). APP_ID also fills request.user.uid.
 //
 // Tempo / public URL caveat: the audio URL given to Doubao MUST be reachable
 // from Volcengine's data plane. Public CDN-fronted VOD playback URLs satisfy
@@ -53,7 +53,7 @@ import (
 const (
 	asrSubmitEndpoint = "https://openspeech.bytedance.com/api/v3/auc/bigmodel/submit"
 	asrQueryEndpoint  = "https://openspeech.bytedance.com/api/v3/auc/bigmodel/query"
-	asrResourceID     = "volc.seedasr.auc"
+	asrResourceID     = "volc.bigasr.auc"
 
 	asrPollIntervalSecs = 2
 	asrMaxPollSecs      = 300 // 5 minutes
@@ -273,14 +273,20 @@ func doASRRequest(c *gin.Context, info *relaycommon.RelayInfo, getOtherInfo func
 		return nil, fmt.Errorf("VOD upload failed: %w", uploadErr)
 	}
 
-	// 4. Build the public audio URL. We rely on the playback domain the
-	// operator configured; URL-auth signing is intentionally NOT done here
-	// because (a) ASR can fetch unsigned for VOD spaces where url-auth is
-	// off, and (b) signed URLs hardcode an expiry, which complicates retries.
-	// If url-auth is mandatory on the operator's VOD space, switch the
-	// space's URL-auth setting to "off" (or extend this code to sign).
+	// 4. Build the public audio URL from the operator-configured playback
+	// domain. When the channel has a `vod_url_auth_key` configured (the VOD
+	// space enforces CDN URL-auth), we sign the URL with a Type-A auth_key so
+	// Doubao's data plane can fetch it. When no key is configured we leave the
+	// URL unsigned — that's the correct behaviour for spaces with url-auth off.
 	scheme := creds.PlaybackScheme
 	audioURL := fmt.Sprintf("%s://%s/%s", scheme, creds.PlaybackDomain, strings.TrimPrefix(uploadResult.FileName, "/"))
+	if creds.UrlAuthKey != "" {
+		signedURL, signErr := signVodPlaybackURL(audioURL, creds.UrlAuthKey, 3600)
+		if signErr != nil {
+			return nil, fmt.Errorf("sign VOD playback URL: %w", signErr)
+		}
+		audioURL = signedURL
+	}
 
 	// 5. Submit to Doubao ASR.
 	taskID, submitErr := asrSubmit(c.Request.Context(), accessToken, appID, audioURL, asrCtx, asrAudioFormatFor(asrCtx.Filename))
@@ -292,7 +298,7 @@ func doASRRequest(c *gin.Context, info *relaycommon.RelayInfo, getOtherInfo func
 	}
 
 	// 6. Poll until terminal.
-	result, pollErr := asrPoll(c.Request.Context(), accessToken, taskID)
+	result, pollErr := asrPoll(c.Request.Context(), accessToken, appID, taskID)
 	if pollErr != nil {
 		return nil, pollErr
 	}
@@ -345,13 +351,10 @@ func asrSubmit(ctx context.Context, accessToken, appID, audioURL string, asrCtx 
 		return "", fmt.Errorf("new ASR submit request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Api-Key", accessToken)
+	req.Header.Set("X-Api-Access-Key", accessToken)
 	req.Header.Set("X-Api-Resource-Id", asrResourceID)
 	req.Header.Set("X-Api-Request-Id", reqID)
-	req.Header.Set("X-Api-Sequence", "-1")
-	if appID != "" {
-		req.Header.Set("X-Api-App-Key", appID)
-	}
+	req.Header.Set("X-Api-App-Key", appID)
 
 	resp, err := asrHTTPClient.Do(req)
 	if err != nil {
@@ -377,13 +380,13 @@ func asrSubmit(ctx context.Context, accessToken, appID, audioURL string, asrCtx 
 
 // asrPoll calls /api/v3/auc/bigmodel/query every 2 seconds until terminal.
 // Returns the final query body on success (X-Api-Status-Code = 20000000).
-func asrPoll(ctx context.Context, accessToken, taskID string) (*asrQueryResponse, error) {
+func asrPoll(ctx context.Context, accessToken, appID, taskID string) (*asrQueryResponse, error) {
 	deadline := asrNowFn().Add(time.Duration(asrMaxPollSecs) * time.Second)
 	for {
 		if asrNowFn().After(deadline) {
 			return nil, fmt.Errorf("Doubao ASR polling timed out after %ds", asrMaxPollSecs)
 		}
-		resp, body, statusCode, err := asrQueryOnce(ctx, accessToken, taskID)
+		resp, body, statusCode, err := asrQueryOnce(ctx, accessToken, appID, taskID)
 		if err != nil {
 			return nil, err
 		}
@@ -407,16 +410,16 @@ func asrPoll(ctx context.Context, accessToken, taskID string) (*asrQueryResponse
 	}
 }
 
-func asrQueryOnce(ctx context.Context, accessToken, taskID string) (int, []byte, string, error) {
+func asrQueryOnce(ctx context.Context, accessToken, appID, taskID string) (int, []byte, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, asrQueryEndpoint, bytes.NewReader([]byte("{}")))
 	if err != nil {
 		return 0, nil, "", fmt.Errorf("new ASR query request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Api-Key", accessToken)
+	req.Header.Set("X-Api-Access-Key", accessToken)
 	req.Header.Set("X-Api-Resource-Id", asrResourceID)
 	req.Header.Set("X-Api-Request-Id", taskID)
-	req.Header.Set("X-Api-Sequence", "-1")
+	req.Header.Set("X-Api-App-Key", appID)
 
 	resp, err := asrHTTPClient.Do(req)
 	if err != nil {
@@ -438,7 +441,7 @@ func utterancesToWhisperJSON(query *asrQueryResponse, requestedLanguage string) 
 	resp := &dto.WhisperVerboseJSONResponse{
 		Task:     "transcribe",
 		Language: shortLanguage(requestedLanguage),
-		Duration: query.AudioInfo.Duration,
+		Duration: float64(query.AudioInfo.Duration) / 1000.0,
 		Text:     query.Result.Text,
 	}
 	if len(query.Result.Utterances) == 0 {
