@@ -170,3 +170,31 @@ func TestConvertToAliRequestWan25I2VKeepsLegacyImgURL(t *testing.T) {
 	require.Contains(t, string(body), `"img_url"`)
 	require.NotContains(t, string(body), `"media"`)
 }
+
+// HappyHorse 是本 fork 自己的家族（不属于上游 Wan 系列），复用 AliVideoMedia
+// 做 metadata.media 透传；覆盖这条以确认合并时的字段改名没有破坏我方逻辑。
+func TestConvertToAliRequestHappyHorseMediaPassthroughFromMetadata(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	req := relaycommon.TaskSubmitReq{
+		Model:  "happyhorse-1.0-i2v",
+		Prompt: "happyhorse image to video",
+		Metadata: map[string]interface{}{
+			"input": map[string]interface{}{
+				"media": []interface{}{
+					map[string]interface{}{"type": "first_frame", "url": "https://example.com/frame.png"},
+					map[string]interface{}{"type": "reference_image", "url": "https://example.com/ref.png"},
+				},
+			},
+		},
+	}
+
+	aliReq, err := adaptor.convertToAliRequest(testRelayInfo(), req)
+
+	require.NoError(t, err)
+	require.Equal(t, []AliVideoMedia{
+		{Type: "first_frame", URL: "https://example.com/frame.png"},
+		{Type: "reference_image", URL: "https://example.com/ref.png"},
+	}, aliReq.Input.Media)
+	// happyhorse 系列不经过 size 校验、默认 1080P 分辨率
+	require.Equal(t, "1080P", aliReq.Parameters.Resolution)
+}
