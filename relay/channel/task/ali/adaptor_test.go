@@ -198,3 +198,24 @@ func TestConvertToAliRequestHappyHorseMediaPassthroughFromMetadata(t *testing.T)
 	// happyhorse 系列不经过 size 校验、默认 1080P 分辨率
 	require.Equal(t, "1080P", aliReq.Parameters.Resolution)
 }
+
+func TestConvertToAliRequestAlwaysSerializesWatermarkFalse(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	for _, model := range []string{"happyhorse-1.0-r2v", "wan2.7-i2v"} {
+		req := relaycommon.TaskSubmitReq{
+			Model:  model,
+			Prompt: "no watermark expected",
+			Image:  "https://example.com/first.png",
+		}
+
+		aliReq, err := adaptor.convertToAliRequest(testRelayInfo(), req)
+
+		require.NoError(t, err)
+		require.False(t, aliReq.Parameters.Watermark)
+
+		body, err := common.Marshal(aliReq)
+		require.NoError(t, err)
+		// 回归锚：watermark=false 曾被 omitempty 吞掉，DashScope 按默认 true 打水印
+		require.Contains(t, string(body), `"watermark":false`, "model %s", model)
+	}
+}

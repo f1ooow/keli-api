@@ -57,7 +57,7 @@ type AliVideoParameters struct {
 	Size         string `json:"size,omitempty"`          // 尺寸: 如 "832*480"（文生视频）
 	Duration     int    `json:"duration,omitempty"`      // 时长: 3-10秒
 	PromptExtend bool   `json:"prompt_extend,omitempty"` // 是否开启prompt智能改写
-	Watermark    bool   `json:"watermark,omitempty"`     // 是否添加水印
+	Watermark    bool   `json:"watermark"`               // 是否添加水印；不带 omitempty：false 必须显式下发，否则 DashScope 按默认 true 打水印
 	Audio        *bool  `json:"audio,omitempty"`         // 是否添加音频（wan2.5）
 	Seed         int    `json:"seed,omitempty"`          // 随机数种子
 	Ratio        string `json:"ratio,omitempty"`         // happyhorse: 比例 "16:9" / "9:16" / "1:1" / ...
