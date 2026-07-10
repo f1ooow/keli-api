@@ -136,6 +136,19 @@ func (t *Task) GetResultURL() string {
 	return t.FailReason
 }
 
+// TaskUnknownStatusGraceSeconds 上游返回 UNKNOWN 状态时的存活宽限窗口（秒）。
+// DashScope 等上游对"刚提交、尚不可查"的任务同样返回 UNKNOWN，与真正丢失的任务
+// 无法区分：提交后处于该窗口内的任务保持非终态继续轮询（15s 轮询周期内约可重查
+// 8 次）；超窗仍为 UNKNOWN 才判死（FAILURE + 退款），保证新任务不被误杀、丢失
+// 任务有界收敛。
+const TaskUnknownStatusGraceSeconds int64 = 120
+
+// InUnknownStatusGrace 报告任务是否仍处于 UNKNOWN 状态的存活宽限期内。
+// SubmitTime 为 0 的异常行视为已超窗（立即可判死），与旧行为一致，不会永久 pending。
+func (t *Task) InUnknownStatusGrace(now int64) bool {
+	return now-t.SubmitTime <= TaskUnknownStatusGraceSeconds
+}
+
 // GenerateTaskID 生成对外暴露的 task_xxxx 格式 ID
 func GenerateTaskID() string {
 	key, _ := common.GenerateRandomCharsKey(32)

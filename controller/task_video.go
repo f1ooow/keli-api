@@ -238,6 +238,19 @@ func updateVideoSingleTask(ctx context.Context, adaptor channel.TaskAdaptor, cha
 				}
 			}
 		}
+	case model.TaskStatusUnknown:
+		// 与 service/task_polling.go 的活跃轮询路径保持一致（本函数当前无调用方，
+		// 属遗留副本）：UNKNOWN 非终态，宽限期内保持任务存活继续轮询，超窗仍是
+		// UNKNOWN 才 fallthrough 到 FAILURE（终态 + 退款）。
+		if task.InUnknownStatusGrace(now) {
+			logger.LogWarn(ctx, fmt.Sprintf("Task %s upstream status UNKNOWN within grace period (submitted %ds ago), keep polling", task.TaskID, now-task.SubmitTime))
+			task.Status = preStatus
+			return nil
+		}
+		if taskResult.Reason == "" {
+			taskResult.Reason = fmt.Sprintf("upstream task status stayed UNKNOWN for more than %d seconds after submit, task treated as lost", model.TaskUnknownStatusGraceSeconds)
+		}
+		fallthrough
 	case model.TaskStatusFailure:
 		logger.LogJson(ctx, fmt.Sprintf("Task %s failed", taskId), task)
 		task.Status = model.TaskStatusFailure

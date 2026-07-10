@@ -598,7 +598,7 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 		taskResult.Status = model.TaskStatusSuccess
 		// 阿里直接返回视频URL，不需要额外的代理端点
 		taskResult.Url = aliResp.Output.VideoURL
-	case "FAILED", "CANCELED", "UNKNOWN":
+	case "FAILED", "CANCELED":
 		taskResult.Status = model.TaskStatusFailure
 		if aliResp.Message != "" {
 			taskResult.Reason = aliResp.Message
@@ -606,6 +606,17 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 			taskResult.Reason = fmt.Sprintf("task failed, code: %s , message: %s", aliResp.Output.Code, aliResp.Output.Message)
 		} else {
 			taskResult.Reason = "task failed"
+		}
+	case "UNKNOWN":
+		// DashScope 对"刚提交、尚不可查"的任务也会返回 UNKNOWN，与真正丢失的任务
+		// 无法区分，不能在此立即判死（会误杀并误退款刚提交的任务）。这里保持非终态
+		// UNKNOWN，由视频轮询按任务年龄决定宽限存活或有界判死
+		// （见 service/task_polling.go updateVideoSingleTask 与 model.TaskUnknownStatusGraceSeconds）。
+		taskResult.Status = model.TaskStatusUnknown
+		if aliResp.Message != "" {
+			taskResult.Reason = aliResp.Message
+		} else if aliResp.Output.Message != "" {
+			taskResult.Reason = fmt.Sprintf("code: %s , message: %s", aliResp.Output.Code, aliResp.Output.Message)
 		}
 	default:
 		taskResult.Status = model.TaskStatusQueued

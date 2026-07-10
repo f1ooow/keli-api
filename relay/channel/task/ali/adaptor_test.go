@@ -1,10 +1,12 @@
 package ali
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/stretchr/testify/require"
 )
@@ -197,6 +199,59 @@ func TestConvertToAliRequestHappyHorseMediaPassthroughFromMetadata(t *testing.T)
 	}, aliReq.Input.Media)
 	// happyhorse 系列不经过 size 校验、默认 1080P 分辨率
 	require.Equal(t, "1080P", aliReq.Parameters.Resolution)
+}
+
+// 回归锚：DashScope 对"刚提交、尚不可查"的任务会返回 UNKNOWN，曾与 FAILED/CANCELED
+// 同等立即判死（FAILURE + 退款 + 永久移出刷新集合），误杀新任务。现在 UNKNOWN 保持
+// 非终态，由轮询侧按任务年龄宽限或有界判死（见 service/task_polling.go）。
+func TestParseTaskResultUnknownStaysNonTerminal(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+
+	taskInfo, err := adaptor.ParseTaskResult([]byte(`{"request_id":"req-1","output":{"task_id":"task-1","task_status":"UNKNOWN"}}`))
+
+	require.NoError(t, err)
+	require.Equal(t, model.TaskStatusUnknown, taskInfo.Status)
+	require.Empty(t, taskInfo.Reason)
+}
+
+func TestParseTaskResultUnknownKeepsUpstreamMessage(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+
+	taskInfo, err := adaptor.ParseTaskResult([]byte(`{"request_id":"req-1","message":"task not found in scheduler","output":{"task_id":"task-1","task_status":"UNKNOWN"}}`))
+
+	require.NoError(t, err)
+	require.Equal(t, model.TaskStatusUnknown, taskInfo.Status)
+	require.Equal(t, "task not found in scheduler", taskInfo.Reason)
+}
+
+func TestParseTaskResultFailedAndCanceledStayTerminal(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	for _, status := range []string{"FAILED", "CANCELED"} {
+		body := fmt.Sprintf(`{"request_id":"req-1","message":"boom","output":{"task_id":"task-1","task_status":"%s"}}`, status)
+
+		taskInfo, err := adaptor.ParseTaskResult([]byte(body))
+
+		require.NoError(t, err)
+		require.Equal(t, model.TaskStatusFailure, taskInfo.Status, "status %s", status)
+		require.Equal(t, "boom", taskInfo.Reason, "status %s", status)
+	}
+}
+
+func TestParseTaskResultSucceededAndProgressStatuses(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+
+	taskInfo, err := adaptor.ParseTaskResult([]byte(`{"request_id":"req-1","output":{"task_id":"task-1","task_status":"SUCCEEDED","video_url":"https://example.com/out.mp4"}}`))
+	require.NoError(t, err)
+	require.Equal(t, model.TaskStatusSuccess, taskInfo.Status)
+	require.Equal(t, "https://example.com/out.mp4", taskInfo.Url)
+
+	taskInfo, err = adaptor.ParseTaskResult([]byte(`{"request_id":"req-1","output":{"task_id":"task-1","task_status":"PENDING"}}`))
+	require.NoError(t, err)
+	require.Equal(t, model.TaskStatusQueued, taskInfo.Status)
+
+	taskInfo, err = adaptor.ParseTaskResult([]byte(`{"request_id":"req-1","output":{"task_id":"task-1","task_status":"RUNNING"}}`))
+	require.NoError(t, err)
+	require.Equal(t, model.TaskStatusInProgress, taskInfo.Status)
 }
 
 func TestConvertToAliRequestAlwaysSerializesWatermarkFalse(t *testing.T) {

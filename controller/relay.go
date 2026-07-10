@@ -507,6 +507,18 @@ func RelayTask(c *gin.Context) {
 		}
 	}()
 
+	// ── 提交时序修复：adaptor.DoResponse 会在内部直接把含 taskId 的 200 响应写回
+	// 客户端，而任务行要到下方 task.Insert() 才入库可查，客户端零延迟首轮轮询会
+	// 撞上 400 task_not_exist。先把响应缓冲住，任务行入库后再真正写出
+	// （见 taskResponseBuffer 注释；对所有 task 平台生效）。
+	respBuffer := newTaskResponseBuffer(c.Writer)
+	c.Writer = respBuffer
+	defer func() {
+		// 兜底：正常路径已在 task.Insert() 之后显式 flush（flushToClient 幂等）。
+		c.Writer = respBuffer.ResponseWriter
+		respBuffer.flushToClient()
+	}()
+
 	retryParam := &service.RetryParam{
 		Ctx:         c,
 		TokenGroup:  relayInfo.TokenGroup,
@@ -548,6 +560,8 @@ func RelayTask(c *gin.Context) {
 		}
 		c.Request.Body = io.NopCloser(bodyStorage)
 
+		// 重试前丢弃上一次尝试可能缓冲的残留写入，避免与最终响应串包
+		respBuffer.reset()
 		result, taskErr = relay.RelayTaskSubmit(c, relayInfo)
 		if taskErr == nil {
 			break
@@ -599,6 +613,11 @@ func RelayTask(c *gin.Context) {
 			common.SysError("insert task error: " + insertErr.Error())
 		}
 	}
+
+	// 任务行已入库（或本次失败、无任务行），现在才把缓冲的提交响应真正写给客户端，
+	// 保证客户端见到 taskId 时该任务必然可查；错误路径缓冲为空，flush 无输出。
+	c.Writer = respBuffer.ResponseWriter
+	respBuffer.flushToClient()
 
 	if taskErr != nil {
 		respondTaskError(c, taskErr)

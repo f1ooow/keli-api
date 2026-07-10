@@ -543,6 +543,21 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 			task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)
 		}
 		shouldSettle = true
+	case model.TaskStatusUnknown:
+		// 上游暂时无法确定任务状态（如 DashScope 对"刚提交、尚不可查"的任务返回
+		// UNKNOWN，ali adaptor 将其映射为非终态 UNKNOWN）。宽限期内不落库，任务
+		// 保持原状态留在刷新集合等下一轮；超过宽限期仍是 UNKNOWN 才按失败收敛
+		// （fallthrough 到 FAILURE 分支：终态 + 退款），保证丢失任务有界判死。
+		if task.InUnknownStatusGrace(now) {
+			logger.LogWarn(ctx, fmt.Sprintf("Task %s upstream status UNKNOWN within grace period (submitted %ds ago), keep polling", task.TaskID, now-task.SubmitTime))
+			task.Status = snap.Status
+			task.Data = snap.Data
+			return nil
+		}
+		if taskResult.Reason == "" {
+			taskResult.Reason = fmt.Sprintf("upstream task status stayed UNKNOWN for more than %d seconds after submit, task treated as lost", model.TaskUnknownStatusGraceSeconds)
+		}
+		fallthrough
 	case model.TaskStatusFailure:
 		logger.LogJson(ctx, fmt.Sprintf("Task %s failed", taskId), task)
 		task.Status = model.TaskStatusFailure
