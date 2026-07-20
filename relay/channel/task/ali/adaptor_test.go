@@ -177,28 +177,65 @@ func TestConvertToAliRequestWan25I2VKeepsLegacyImgURL(t *testing.T) {
 // 做 metadata.media 透传；覆盖这条以确认合并时的字段改名没有破坏我方逻辑。
 func TestConvertToAliRequestHappyHorseMediaPassthroughFromMetadata(t *testing.T) {
 	adaptor := &TaskAdaptor{}
-	req := relaycommon.TaskSubmitReq{
-		Model:  "happyhorse-1.0-i2v",
-		Prompt: "happyhorse image to video",
-		Metadata: map[string]interface{}{
-			"input": map[string]interface{}{
-				"media": []interface{}{
-					map[string]interface{}{"type": "first_frame", "url": "https://example.com/frame.png"},
-					map[string]interface{}{"type": "reference_image", "url": "https://example.com/ref.png"},
+	for _, modelName := range []string{"happyhorse-1.0-i2v", "happyhorse-1.1-i2v"} {
+		t.Run(modelName, func(t *testing.T) {
+			req := relaycommon.TaskSubmitReq{
+				Model:  modelName,
+				Prompt: "happyhorse image to video",
+				Metadata: map[string]interface{}{
+					"input": map[string]interface{}{
+						"media": []interface{}{
+							map[string]interface{}{"type": "first_frame", "url": "https://example.com/frame.png"},
+							map[string]interface{}{"type": "reference_image", "url": "https://example.com/ref.png"},
+						},
+					},
 				},
-			},
-		},
+			}
+
+			aliReq, err := adaptor.convertToAliRequest(testRelayInfo(), req)
+
+			require.NoError(t, err)
+			require.Equal(t, []AliVideoMedia{
+				{Type: "first_frame", URL: "https://example.com/frame.png"},
+				{Type: "reference_image", URL: "https://example.com/ref.png"},
+			}, aliReq.Input.Media)
+			// happyhorse 系列不经过 size 校验、默认 1080P 分辨率
+			require.Equal(t, "1080P", aliReq.Parameters.Resolution)
+		})
 	}
+}
 
-	aliReq, err := adaptor.convertToAliRequest(testRelayInfo(), req)
+func TestProcessAliOtherRatiosHappyHorsePriceMatrix(t *testing.T) {
+	models := []string{
+		"happyhorse-1.0-t2v",
+		"happyhorse-1.0-i2v",
+		"happyhorse-1.0-r2v",
+		"happyhorse-1.0-video-edit",
+		"happyhorse-1.1-t2v",
+		"happyhorse-1.1-i2v",
+		"happyhorse-1.1-r2v",
+	}
+	for _, modelName := range models {
+		for _, tc := range []struct {
+			resolution string
+			want       float64
+		}{
+			{resolution: "720P", want: 1},
+			{resolution: "1080P", want: 1.2 / 0.9},
+		} {
+			t.Run(modelName+"-"+tc.resolution, func(t *testing.T) {
+				ratios, err := ProcessAliOtherRatios(&AliVideoRequest{
+					Model: modelName,
+					Parameters: &AliVideoParameters{
+						Resolution: tc.resolution,
+					},
+				})
 
-	require.NoError(t, err)
-	require.Equal(t, []AliVideoMedia{
-		{Type: "first_frame", URL: "https://example.com/frame.png"},
-		{Type: "reference_image", URL: "https://example.com/ref.png"},
-	}, aliReq.Input.Media)
-	// happyhorse 系列不经过 size 校验、默认 1080P 分辨率
-	require.Equal(t, "1080P", aliReq.Parameters.Resolution)
+				require.NoError(t, err)
+				require.InDelta(t, tc.want, ratios["resolution-"+tc.resolution], 1e-9)
+			})
+		}
+	}
 }
 
 // 回归锚：DashScope 对"刚提交、尚不可查"的任务会返回 UNKNOWN，曾与 FAILED/CANCELED
@@ -256,7 +293,7 @@ func TestParseTaskResultSucceededAndProgressStatuses(t *testing.T) {
 
 func TestConvertToAliRequestAlwaysSerializesWatermarkFalse(t *testing.T) {
 	adaptor := &TaskAdaptor{}
-	for _, model := range []string{"happyhorse-1.0-r2v", "wan2.7-i2v"} {
+	for _, model := range []string{"happyhorse-1.0-r2v", "happyhorse-1.1-r2v", "wan2.7-i2v"} {
 		req := relaycommon.TaskSubmitReq{
 			Model:  model,
 			Prompt: "no watermark expected",

@@ -31,11 +31,16 @@ const formatNumber = (n, digits = 4) => {
 
 // 按 newapi 后端 relay/channel/task/ali/adaptor.go aliRatios 复刻的分辨率倍率。
 // 维护节奏：upstream 改 aliRatios 时，把对应 entry 同步到这里。
+const HAPPYHORSE_RESOLUTION_RATIOS = { '720P': 1, '1080P': 1.333333 };
+
 const RESOLUTION_RATIOS = {
-  'happyhorse-1.0-t2v': { '720P': 1, '1080P': 1.778 },
-  'happyhorse-1.0-i2v': { '720P': 1, '1080P': 1.778 },
-  'happyhorse-1.0-r2v': { '720P': 1, '1080P': 1.778 },
-  'happyhorse-1.0-video-edit': { '720P': 1, '1080P': 1.778 },
+  'happyhorse-1.0-t2v': HAPPYHORSE_RESOLUTION_RATIOS,
+  'happyhorse-1.0-i2v': HAPPYHORSE_RESOLUTION_RATIOS,
+  'happyhorse-1.0-r2v': HAPPYHORSE_RESOLUTION_RATIOS,
+  'happyhorse-1.0-video-edit': HAPPYHORSE_RESOLUTION_RATIOS,
+  'happyhorse-1.1-t2v': HAPPYHORSE_RESOLUTION_RATIOS,
+  'happyhorse-1.1-i2v': HAPPYHORSE_RESOLUTION_RATIOS,
+  'happyhorse-1.1-r2v': HAPPYHORSE_RESOLUTION_RATIOS,
 };
 
 export function resolveResolutionRatios(modelName) {
@@ -83,7 +88,10 @@ export function resolveVideoTierRows(model, usedGroupRatio, displayPrice) {
       resolution,
       duration: Number(durationStr),
       ratio,
-      priceLabel: typeof displayPrice === 'function' ? displayPrice(priceUSD) : `${priceUSD}`,
+      priceLabel:
+        typeof displayPrice === 'function'
+          ? displayPrice(priceUSD)
+          : `${priceUSD}`,
     };
   });
 }
@@ -91,7 +99,11 @@ export function resolveVideoTierRows(model, usedGroupRatio, displayPrice) {
 // 给 per_second 模型按分辨率倍率算出每档绝对价（含 group_ratio）。
 // displayPrice 由调用方注入（带 currency / 充值汇率处理），保持单一 formatter。
 // 返回 [{ resolution: '720P', ratio: 1, priceLabel: '¥1.530' }, ...] 或 null。
-export function resolveResolutionPriceRows(model, usedGroupRatio, displayPrice) {
+export function resolveResolutionPriceRows(
+  model,
+  usedGroupRatio,
+  displayPrice,
+) {
   const ratios = resolveResolutionRatios(model?.model_name);
   if (!ratios) return null;
   const basePrice = Number(model.model_price) || 0;
@@ -101,7 +113,10 @@ export function resolveResolutionPriceRows(model, usedGroupRatio, displayPrice) 
     return {
       resolution,
       ratio,
-      priceLabel: typeof displayPrice === 'function' ? displayPrice(priceUSD) : `${priceUSD}`,
+      priceLabel:
+        typeof displayPrice === 'function'
+          ? displayPrice(priceUSD)
+          : `${priceUSD}`,
     };
   });
 }
@@ -240,7 +255,10 @@ export const PRICING_TEMPLATES = {
 export const MODEL_PRICING_RULES = [
   // 按分钟视频处理（viapi 家族 — fulladaptor 引入，精确匹配）
   { match: (n) => n === 'viapi-super-resolve', type: PRICING_TYPES.PER_MINUTE },
-  { match: (n) => n === 'viapi-erase-subtitles', type: PRICING_TYPES.PER_MINUTE },
+  {
+    match: (n) => n === 'viapi-erase-subtitles',
+    type: PRICING_TYPES.PER_MINUTE,
+  },
 
   // 按次（viapi 其他单次操作）
   { match: (n) => n === 'viapi-segment-common', type: PRICING_TYPES.PER_CALL },
@@ -248,7 +266,10 @@ export const MODEL_PRICING_RULES = [
   // 按秒视频（happyhorse 家族 — fulladaptor 引入）
   { match: (n) => n.startsWith('happyhorse-'), type: PRICING_TYPES.PER_SECOND },
   // 按档位视频（MiniMax Hailuo 家族 — 分辨率+时长 组合查表）
-  { match: (n) => n.startsWith('MiniMax-Hailuo-'), type: PRICING_TYPES.PER_VIDEO_TIER },
+  {
+    match: (n) => n.startsWith('MiniMax-Hailuo-'),
+    type: PRICING_TYPES.PER_VIDEO_TIER,
+  },
   // 预留：未来 Seedance / Wan 视频按秒计费时在此添加：
   // { match: (n) => n.startsWith('doubao-seedance-'), type: PRICING_TYPES.PER_SECOND },
 

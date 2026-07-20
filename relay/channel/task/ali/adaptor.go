@@ -209,6 +209,10 @@ func sizeToResolution(size string) (string, error) {
 
 func ProcessAliOtherRatios(aliReq *AliVideoRequest) (map[string]float64, error) {
 	otherRatios := make(map[string]float64)
+	happyHorseResolutionRatios := map[string]float64{
+		"720P":  1,
+		"1080P": 1.2 / 0.9,
+	}
 	aliRatios := map[string]map[string]float64{
 		"wan2.6-i2v": {
 			"720P":  1,
@@ -245,23 +249,15 @@ func ProcessAliOtherRatios(aliReq *AliVideoRequest) (map[string]float64, error) 
 			"480P": 1,
 			"720P": 0.9 / 0.5,
 		},
-		// HappyHorse 家族：720P 基准 1.0，1080P = 1.6/0.9 ≈ 1.778
-		"happyhorse-1.0-t2v": {
-			"720P":  1,
-			"1080P": 1.6 / 0.9,
-		},
-		"happyhorse-1.0-i2v": {
-			"720P":  1,
-			"1080P": 1.6 / 0.9,
-		},
-		"happyhorse-1.0-r2v": {
-			"720P":  1,
-			"1080P": 1.6 / 0.9,
-		},
-		"happyhorse-1.0-video-edit": {
-			"720P":  1,
-			"1080P": 1.6 / 0.9,
-		},
+		// HappyHorse 1.0 / 1.1 share the current official price matrix:
+		// 720P = 0.9 CNY/s (base), 1080P = 1.2 CNY/s (4/3 of base).
+		"happyhorse-1.0-t2v":        happyHorseResolutionRatios,
+		"happyhorse-1.0-i2v":        happyHorseResolutionRatios,
+		"happyhorse-1.0-r2v":        happyHorseResolutionRatios,
+		"happyhorse-1.0-video-edit": happyHorseResolutionRatios,
+		"happyhorse-1.1-t2v":        happyHorseResolutionRatios,
+		"happyhorse-1.1-i2v":        happyHorseResolutionRatios,
+		"happyhorse-1.1-r2v":        happyHorseResolutionRatios,
 	}
 	var resolution string
 
