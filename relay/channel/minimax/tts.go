@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
@@ -27,7 +28,8 @@ type MiniMaxTTSRequest struct {
 	TimbreWeights     []TimbreWeight     `json:"timbre_weights,omitempty"`
 	LanguageBoost     string             `json:"language_boost,omitempty"`
 	VoiceModify       *VoiceModify       `json:"voice_modify,omitempty"`
-	SubtitleEnable    bool               `json:"subtitle_enable,omitempty"`
+	SubtitleEnable    *bool              `json:"subtitle_enable,omitempty"`
+	SubtitleType      *string            `json:"subtitle_type,omitempty"`
 	OutputFormat      string             `json:"output_format,omitempty"`
 	AigcWatermark     bool               `json:"aigc_watermark,omitempty"`
 }
@@ -78,8 +80,9 @@ type MiniMaxTTSResponse struct {
 }
 
 type MiniMaxTTSData struct {
-	Audio  string `json:"audio"`
-	Status int    `json:"status"`
+	Audio        string `json:"audio"`
+	SubtitleFile string `json:"subtitle_file"`
+	Status       int    `json:"status"`
 }
 
 type MiniMaxExtraInfo struct {
@@ -89,6 +92,48 @@ type MiniMaxExtraInfo struct {
 type MiniMaxBaseResp struct {
 	StatusCode int64  `json:"status_code"`
 	StatusMsg  string `json:"status_msg"`
+}
+
+const (
+	miniMaxTTSSubtitleEnabledContextKey = "minimax_tts_subtitle_enabled"
+	maxMiniMaxTTSSubtitleBytes          = 4 << 20
+)
+
+type miniMaxTTSSubtitleEnvelope struct {
+	Audio    string          `json:"audio,omitempty"`
+	AudioURL string          `json:"audio_url,omitempty"`
+	Subtitle json.RawMessage `json:"subtitle,omitempty"`
+}
+
+type miniMaxTTSSubtitleDownloader func(string, ...string) (*http.Response, error)
+
+func fetchMiniMaxTTSSubtitle(subtitleURL string, download miniMaxTTSSubtitleDownloader) (json.RawMessage, error) {
+	response, err := download(subtitleURL, "minimax tts subtitle")
+	if err != nil {
+		return nil, fmt.Errorf("download subtitle: %w", err)
+	}
+	if response == nil {
+		return nil, errors.New("empty subtitle response")
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("unexpected subtitle response status: %d", response.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxMiniMaxTTSSubtitleBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read subtitle response: %w", err)
+	}
+	if len(body) > maxMiniMaxTTSSubtitleBytes {
+		return nil, fmt.Errorf("subtitle response exceeds %d bytes", maxMiniMaxTTSSubtitleBytes)
+	}
+
+	var subtitle json.RawMessage
+	if err := common.Unmarshal(body, &subtitle); err != nil {
+		return nil, fmt.Errorf("invalid subtitle JSON: %w", err)
+	}
+	return subtitle, nil
 }
 
 func getContentTypeByFormat(format string) string {
@@ -106,6 +151,10 @@ func getContentTypeByFormat(format string) string {
 }
 
 func handleTTSResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
+	return handleTTSResponseWithSubtitleDownloader(c, resp, info, service.DoDownloadRequest)
+}
+
+func handleTTSResponseWithSubtitleDownloader(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, downloadSubtitle miniMaxTTSSubtitleDownloader) (usage any, err *types.NewAPIError) {
 	body, readErr := io.ReadAll(resp.Body)
 	if readErr != nil {
 		return nil, types.NewErrorWithStatusCode(
@@ -118,7 +167,7 @@ func handleTTSResponse(c *gin.Context, resp *http.Response, info *relaycommon.Re
 
 	// Parse response
 	var minimaxResp MiniMaxTTSResponse
-	if unmarshalErr := json.Unmarshal(body, &minimaxResp); unmarshalErr != nil {
+	if unmarshalErr := common.Unmarshal(body, &minimaxResp); unmarshalErr != nil {
 		return nil, types.NewErrorWithStatusCode(
 			fmt.Errorf("failed to unmarshal minimax TTS response: %w", unmarshalErr),
 			types.ErrorCodeBadResponseBody,
@@ -144,7 +193,37 @@ func handleTTSResponse(c *gin.Context, resp *http.Response, info *relaycommon.Re
 		)
 	}
 
-	if strings.HasPrefix(minimaxResp.Data.Audio, "http") {
+	subtitleEnabled := c.GetBool(miniMaxTTSSubtitleEnabledContextKey)
+	if subtitleEnabled {
+		envelope := miniMaxTTSSubtitleEnvelope{}
+		if strings.HasPrefix(minimaxResp.Data.Audio, "http") {
+			envelope.AudioURL = minimaxResp.Data.Audio
+		} else {
+			envelope.Audio = minimaxResp.Data.Audio
+		}
+
+		if minimaxResp.Data.SubtitleFile != "" {
+			subtitle, downloadErr := fetchMiniMaxTTSSubtitle(minimaxResp.Data.SubtitleFile, downloadSubtitle)
+			if downloadErr != nil {
+				return nil, types.NewErrorWithStatusCode(
+					fmt.Errorf("failed to fetch minimax TTS subtitle: %w", downloadErr),
+					types.ErrorCodeBadResponseBody,
+					http.StatusBadGateway,
+				)
+			}
+			envelope.Subtitle = subtitle
+		}
+
+		envelopeBody, marshalErr := common.Marshal(envelope)
+		if marshalErr != nil {
+			return nil, types.NewErrorWithStatusCode(
+				fmt.Errorf("failed to marshal minimax TTS subtitle envelope: %w", marshalErr),
+				types.ErrorCodeBadResponseBody,
+				http.StatusInternalServerError,
+			)
+		}
+		c.Data(http.StatusOK, "application/json", envelopeBody)
+	} else if strings.HasPrefix(minimaxResp.Data.Audio, "http") {
 		c.Redirect(http.StatusFound, minimaxResp.Data.Audio)
 	} else {
 		// Handle hex-encoded audio data
