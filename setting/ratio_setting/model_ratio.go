@@ -113,6 +113,8 @@ var defaultModelRatio = map[string]float64{
 	"tts-1-1106":                                7.5, // 1k characters -> $0.015
 	"tts-1-hd":                                  15,  // 1k characters -> $0.03
 	"tts-1-hd-1106":                             15,  // 1k characters -> $0.03
+	"doubao-tts-2.0":                            250, // ¥0.50 / 1K characters before group ratio
+	"seed-tts-2.0-standard":                     250, // ¥0.50 / 1K characters before group ratio
 	"davinci":                                   10,
 	"curie":                                     10,
 	"text-embedding-3-small":                    0.01,

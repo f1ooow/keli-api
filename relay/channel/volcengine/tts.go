@@ -1,15 +1,19 @@
 package volcengine
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
@@ -17,6 +21,113 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
+
+const seedTTSV3SuccessCode = 20000000
+
+type VolcengineSeedTTSV3Request struct {
+	User      VolcengineSeedTTSV3User      `json:"user"`
+	ReqParams VolcengineSeedTTSV3ReqParams `json:"req_params"`
+}
+
+type VolcengineSeedTTSV3User struct {
+	UID string `json:"uid"`
+}
+
+type VolcengineSeedTTSV3ReqParams struct {
+	Text        string                         `json:"text"`
+	Model       string                         `json:"model"`
+	Speaker     string                         `json:"speaker"`
+	AudioParams VolcengineSeedTTSV3AudioParams `json:"audio_params"`
+}
+
+type VolcengineSeedTTSV3AudioParams struct {
+	Format         string `json:"format"`
+	SampleRate     int    `json:"sample_rate"`
+	EnableSubtitle bool   `json:"enable_subtitle"`
+}
+
+type VolcengineSeedTTSV3Metadata struct {
+	SubtitleEnable *bool  `json:"subtitle_enable,omitempty"`
+	SubtitleType   string `json:"subtitle_type,omitempty"`
+}
+
+type VolcengineSeedTTSV3Event struct {
+	Code     int                          `json:"code"`
+	Message  string                       `json:"message"`
+	Data     string                       `json:"data"`
+	Sentence *VolcengineSeedTTSV3Sentence `json:"sentence,omitempty"`
+}
+
+type VolcengineSeedTTSV3Sentence struct {
+	Text  string                    `json:"text"`
+	Words []VolcengineSeedTTSV3Word `json:"words"`
+}
+
+type VolcengineSeedTTSV3Word struct {
+	Word      string  `json:"word"`
+	StartTime float64 `json:"startTime"`
+	EndTime   float64 `json:"endTime"`
+}
+
+type VolcengineSeedTTSSubtitleEnvelope struct {
+	Audio    string                         `json:"audio"`
+	Subtitle *VolcengineSeedTTSSubtitleBody `json:"subtitle,omitempty"`
+	TraceID  string                         `json:"trace_id,omitempty"`
+}
+
+type VolcengineSeedTTSSubtitleBody struct {
+	Sentences []VolcengineSeedTTSSubtitleSentence `json:"sentences"`
+}
+
+type VolcengineSeedTTSSubtitleSentence struct {
+	Text      string `json:"text"`
+	StartTime int    `json:"start_time"`
+	EndTime   int    `json:"end_time"`
+}
+
+func isSeedTTSV3Model(model string) bool {
+	return model == "seed-tts-2.0-standard" || model == "doubao-tts-2.0"
+}
+
+func convertSeedTTSV3AudioRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.AudioRequest) (io.Reader, error) {
+	if strings.TrimSpace(request.Input) == "" {
+		return nil, errors.New("input is required")
+	}
+	if strings.TrimSpace(request.Voice) == "" {
+		return nil, errors.New("voice is required")
+	}
+
+	metadata := VolcengineSeedTTSV3Metadata{}
+	if len(request.Metadata) > 0 {
+		if err := common.Unmarshal(request.Metadata, &metadata); err != nil {
+			return nil, fmt.Errorf("error unmarshalling volcengine Seed-TTS metadata: %w", err)
+		}
+	}
+	subtitleEnabled := metadata.SubtitleEnable != nil && *metadata.SubtitleEnable
+	encoding := mapEncoding(request.ResponseFormat)
+	c.Set(contextKeyResponseFormat, encoding)
+	c.Set(contextKeySeedTTSV3SubtitleEnabled, subtitleEnabled)
+	info.IsStream = false
+
+	upstreamRequest := VolcengineSeedTTSV3Request{
+		User: VolcengineSeedTTSV3User{UID: "newapi-relay-user"},
+		ReqParams: VolcengineSeedTTSV3ReqParams{
+			Text:    request.Input,
+			Model:   "seed-tts-2.0-standard",
+			Speaker: request.Voice,
+			AudioParams: VolcengineSeedTTSV3AudioParams{
+				Format:         encoding,
+				SampleRate:     24000,
+				EnableSubtitle: subtitleEnabled,
+			},
+		},
+	}
+	payload, err := common.Marshal(upstreamRequest)
+	if err != nil {
+		return nil, fmt.Errorf("error marshalling volcengine Seed-TTS request: %w", err)
+	}
+	return bytes.NewReader(payload), nil
+}
 
 type VolcengineTTSRequest struct {
 	App     VolcengineTTSApp     `json:"app"`
@@ -154,7 +265,7 @@ func handleTTSResponse(c *gin.Context, resp *http.Response, info *relaycommon.Re
 	defer resp.Body.Close()
 
 	var volcResp VolcengineTTSResponse
-	if unmarshalErr := json.Unmarshal(body, &volcResp); unmarshalErr != nil {
+	if unmarshalErr := common.Unmarshal(body, &volcResp); unmarshalErr != nil {
 		return nil, types.NewErrorWithStatusCode(
 			errors.New("failed to parse volcengine response"),
 			types.ErrorCodeBadResponseBody,
@@ -192,6 +303,139 @@ func handleTTSResponse(c *gin.Context, resp *http.Response, info *relaycommon.Re
 	return usage, nil
 }
 
+func handleSeedTTSV3Response(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, encoding string) (usage any, err *types.NewAPIError) {
+	if resp == nil || resp.Body == nil {
+		return nil, types.NewErrorWithStatusCode(
+			errors.New("volcengine Seed-TTS returned an empty response"),
+			types.ErrorCodeBadResponseBody,
+			http.StatusBadGateway,
+		)
+	}
+	defer resp.Body.Close()
+
+	traceID := resp.Header.Get("X-Tt-Logid")
+	if traceID == "" {
+		traceID = resp.Header.Get("X-Log-Id")
+	}
+
+	var audio bytes.Buffer
+	subtitles := make([]VolcengineSeedTTSSubtitleSentence, 0)
+	seenSubtitles := make(map[string]struct{})
+	completed := false
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 64*1024), 32*1024*1024)
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+
+		event := VolcengineSeedTTSV3Event{}
+		if unmarshalErr := common.Unmarshal(line, &event); unmarshalErr != nil {
+			return nil, types.NewErrorWithStatusCode(
+				fmt.Errorf("failed to parse volcengine Seed-TTS event: %w", unmarshalErr),
+				types.ErrorCodeBadResponseBody,
+				http.StatusBadGateway,
+			)
+		}
+		if event.Code == seedTTSV3SuccessCode {
+			completed = true
+			continue
+		}
+		if event.Code != 0 {
+			statusCode := http.StatusBadGateway
+			if event.Code == 40000701 || event.Code == 40000702 {
+				statusCode = http.StatusUnauthorized
+			}
+			message := strings.TrimSpace(event.Message)
+			if message == "" {
+				message = "volcengine Seed-TTS request failed"
+			}
+			if traceID != "" {
+				message = fmt.Sprintf("%s (trace id: %s)", message, traceID)
+			}
+			return nil, types.NewErrorWithStatusCode(
+				fmt.Errorf("volcengine Seed-TTS error %d: %s", event.Code, message),
+				types.ErrorCodeBadResponse,
+				statusCode,
+			)
+		}
+
+		if event.Data != "" {
+			chunk, decodeErr := base64.StdEncoding.DecodeString(event.Data)
+			if decodeErr != nil {
+				return nil, types.NewErrorWithStatusCode(
+					fmt.Errorf("failed to decode volcengine Seed-TTS audio chunk: %w", decodeErr),
+					types.ErrorCodeBadResponseBody,
+					http.StatusBadGateway,
+				)
+			}
+			_, _ = audio.Write(chunk)
+		}
+
+		if event.Sentence != nil && len(event.Sentence.Words) > 0 {
+			text := strings.TrimSpace(event.Sentence.Text)
+			startTime := event.Sentence.Words[0].StartTime
+			endTime := event.Sentence.Words[len(event.Sentence.Words)-1].EndTime
+			if text != "" && startTime >= 0 && endTime > startTime {
+				subtitle := VolcengineSeedTTSSubtitleSentence{
+					Text:      text,
+					StartTime: int(math.Round(startTime * 1000)),
+					EndTime:   int(math.Round(endTime * 1000)),
+				}
+				key := fmt.Sprintf("%d:%d:%s", subtitle.StartTime, subtitle.EndTime, subtitle.Text)
+				if _, exists := seenSubtitles[key]; !exists {
+					seenSubtitles[key] = struct{}{}
+					subtitles = append(subtitles, subtitle)
+				}
+			}
+		}
+	}
+	if scanErr := scanner.Err(); scanErr != nil {
+		return nil, types.NewErrorWithStatusCode(
+			fmt.Errorf("failed to read volcengine Seed-TTS stream: %w", scanErr),
+			types.ErrorCodeReadResponseBodyFailed,
+			http.StatusBadGateway,
+		)
+	}
+	if !completed || audio.Len() == 0 {
+		return nil, types.NewErrorWithStatusCode(
+			errors.New("volcengine Seed-TTS response was incomplete"),
+			types.ErrorCodeBadResponseBody,
+			http.StatusBadGateway,
+		)
+	}
+
+	if c.GetBool(contextKeySeedTTSV3SubtitleEnabled) {
+		envelope := VolcengineSeedTTSSubtitleEnvelope{
+			Audio:   hex.EncodeToString(audio.Bytes()),
+			TraceID: traceID,
+			Subtitle: &VolcengineSeedTTSSubtitleBody{
+				Sentences: subtitles,
+			},
+		}
+		body, marshalErr := common.Marshal(envelope)
+		if marshalErr != nil {
+			return nil, types.NewErrorWithStatusCode(
+				fmt.Errorf("failed to marshal volcengine Seed-TTS response: %w", marshalErr),
+				types.ErrorCodeBadResponseBody,
+				http.StatusInternalServerError,
+			)
+		}
+		c.Data(http.StatusOK, "application/json", body)
+	} else {
+		contentType := getContentTypeByEncoding(encoding)
+		c.Data(http.StatusOK, contentType, audio.Bytes())
+	}
+
+	usage = &dto.Usage{
+		PromptTokens:     info.GetEstimatePromptTokens(),
+		CompletionTokens: 0,
+		TotalTokens:      info.GetEstimatePromptTokens(),
+	}
+	return usage, nil
+}
+
 func generateRequestID() string {
 	return uuid.New().String()
 }
@@ -226,7 +470,7 @@ func handleTTSWebSocketResponse(c *gin.Context, requestURL string, volcRequest V
 	}
 	defer conn.Close()
 
-	payload, marshalErr := json.Marshal(volcRequest)
+	payload, marshalErr := common.Marshal(volcRequest)
 	if marshalErr != nil {
 		return nil, types.NewErrorWithStatusCode(
 			fmt.Errorf("failed to marshal request: %w", marshalErr),
