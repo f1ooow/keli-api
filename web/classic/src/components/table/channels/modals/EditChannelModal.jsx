@@ -195,6 +195,8 @@ const EditChannelModal = (props) => {
     system_prompt: '',
     system_prompt_override: false,
     settings: '',
+    task_endpoint_submit_path: '',
+    task_endpoint_fetch_path: '',
     // 仅 Vertex: 密钥格式（存入 settings.vertex_key_type）
     vertex_key_type: 'json',
     // 仅 AWS: 密钥格式和区域（存入 settings.aws_key_type 和 settings.aws_region）
@@ -909,6 +911,10 @@ const EditChannelModal = (props) => {
             parsedSettings.allow_inference_geo || false;
           data.allow_speed = parsedSettings.allow_speed || false;
           data.claude_beta_query = parsedSettings.claude_beta_query || false;
+          data.task_endpoint_submit_path =
+            parsedSettings.task_endpoint_override?.submit_path || '';
+          data.task_endpoint_fetch_path =
+            parsedSettings.task_endpoint_override?.fetch_path || '';
           data.upstream_model_update_check_enabled =
             parsedSettings.upstream_model_update_check_enabled === true;
           data.upstream_model_update_auto_sync_enabled =
@@ -939,6 +945,8 @@ const EditChannelModal = (props) => {
           data.allow_inference_geo = false;
           data.allow_speed = false;
           data.claude_beta_query = false;
+          data.task_endpoint_submit_path = '';
+          data.task_endpoint_fetch_path = '';
           data.upstream_model_update_check_enabled = false;
           data.upstream_model_update_auto_sync_enabled = false;
           data.upstream_model_update_last_check_time = 0;
@@ -957,6 +965,8 @@ const EditChannelModal = (props) => {
         data.allow_inference_geo = false;
         data.allow_speed = false;
         data.claude_beta_query = false;
+        data.task_endpoint_submit_path = '';
+        data.task_endpoint_fetch_path = '';
         data.upstream_model_update_check_enabled = false;
         data.upstream_model_update_auto_sync_enabled = false;
         data.upstream_model_update_last_check_time = 0;
@@ -1035,6 +1045,10 @@ const EditChannelModal = (props) => {
         data.pass_through_body_enabled ||
         data.force_format ||
         data.claude_beta_query ||
+        (data.task_endpoint_submit_path &&
+          data.task_endpoint_submit_path.trim()) ||
+        (data.task_endpoint_fetch_path &&
+          data.task_endpoint_fetch_path.trim()) ||
         data.system_prompt_override;
       if (hasAdvancedValues) {
         setAdvancedSettingsOpen(true);
@@ -1537,6 +1551,9 @@ const EditChannelModal = (props) => {
   const submit = async () => {
     const formValues = formApiRef.current ? formApiRef.current.getValues() : {};
     let localInputs = { ...formValues };
+    // `settings` is not a registered Form field. Preserve unrelated settings
+    // keys while updating the task endpoint override fields below.
+    localInputs.settings = inputs.settings || '';
     localInputs.param_override = inputs.param_override;
 
     if (localInputs.type === 57) {
@@ -1778,6 +1795,36 @@ const EditChannelModal = (props) => {
       delete settings.vertex_key_type;
     }
 
+    if (localInputs.type === 17) {
+      const submitPath = String(
+        localInputs.task_endpoint_submit_path || '',
+      ).trim();
+      const fetchPath = String(
+        localInputs.task_endpoint_fetch_path || '',
+      ).trim();
+      if (!submitPath && !fetchPath) {
+        delete settings.task_endpoint_override;
+      } else {
+        const taskEndpointOverride =
+          settings.task_endpoint_override &&
+          typeof settings.task_endpoint_override === 'object' &&
+          !Array.isArray(settings.task_endpoint_override)
+            ? { ...settings.task_endpoint_override }
+            : {};
+        if (submitPath) {
+          taskEndpointOverride.submit_path = submitPath;
+        } else {
+          delete taskEndpointOverride.submit_path;
+        }
+        if (fetchPath) {
+          taskEndpointOverride.fetch_path = fetchPath;
+        } else {
+          delete taskEndpointOverride.fetch_path;
+        }
+        settings.task_endpoint_override = taskEndpointOverride;
+      }
+    }
+
     // type === 1 (OpenAI) 或 type === 14 (Claude): 设置字段透传控制（显式保存布尔值）
     if (localInputs.type === 1 || localInputs.type === 14) {
       settings.allow_service_tier = localInputs.allow_service_tier === true;
@@ -1841,6 +1888,8 @@ const EditChannelModal = (props) => {
     delete localInputs.allow_inference_geo;
     delete localInputs.allow_speed;
     delete localInputs.claude_beta_query;
+    delete localInputs.task_endpoint_submit_path;
+    delete localInputs.task_endpoint_fetch_path;
     delete localInputs.upstream_model_update_check_enabled;
     delete localInputs.upstream_model_update_auto_sync_enabled;
     delete localInputs.upstream_model_update_last_check_time;
@@ -2412,6 +2461,34 @@ const EditChannelModal = (props) => {
                     }
                     showClear
                   />
+                  {inputs.type === 17 && (
+                    <div className='grid grid-cols-1 gap-3 mb-4'>
+                      <Form.Input
+                        field='task_endpoint_submit_path'
+                        label={t('提交任务路径覆盖')}
+                        placeholder='/api/v1/services/aigc/video-generation/video-synthesis'
+                        onChange={(value) =>
+                          handleInputChange('task_endpoint_submit_path', value)
+                        }
+                        showClear
+                        extraText={t(
+                          '可选，必须以 / 开头；留空时使用 Ali 适配器默认提交路径',
+                        )}
+                      />
+                      <Form.Input
+                        field='task_endpoint_fetch_path'
+                        label={t('查询任务路径覆盖')}
+                        placeholder='/api/v1/tasks/{task_id}'
+                        onChange={(value) =>
+                          handleInputChange('task_endpoint_fetch_path', value)
+                        }
+                        showClear
+                        extraText={t(
+                          '可选，必须以 / 开头并包含一次 {task_id}；留空时使用 Ali 适配器默认查询路径',
+                        )}
+                      />
+                    </div>
+                  )}
                   <JSONEditor
                     key={`status_code_mapping-${isEdit ? channelId : 'new'}`}
                     field='status_code_mapping'

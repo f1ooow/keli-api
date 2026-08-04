@@ -29,6 +29,13 @@ const (
 	AwsKeyTypeApiKey AwsKeyType = "api_key"
 )
 
+const TaskIDPlaceholder = "{task_id}"
+
+type TaskEndpointOverride struct {
+	SubmitPath string `json:"submit_path,omitempty"`
+	FetchPath  string `json:"fetch_path,omitempty"`
+}
+
 type ChannelOtherSettings struct {
 	AzureResponsesVersion                 string                `json:"azure_responses_version,omitempty"`
 	VertexKeyType                         VertexKeyType         `json:"vertex_key_type,omitempty"` // "json" or "api_key"
@@ -49,6 +56,69 @@ type ChannelOtherSettings struct {
 	UpstreamModelUpdateLastRemovedModels  []string              `json:"upstream_model_update_last_removed_models,omitempty"`  // 上次检测到的可删除模型
 	UpstreamModelUpdateIgnoredModels      []string              `json:"upstream_model_update_ignored_models,omitempty"`       // 手动忽略的模型
 	AdvancedCustom                        *AdvancedCustomConfig `json:"advanced_custom,omitempty"`
+	TaskEndpointOverride                  *TaskEndpointOverride `json:"task_endpoint_override,omitempty"`
+}
+
+func (o *TaskEndpointOverride) Validate() error {
+	if o == nil {
+		return nil
+	}
+	if err := ValidateTaskEndpointPath(o.SubmitPath, false); err != nil {
+		return fmt.Errorf("task_endpoint_override.submit_path: %w", err)
+	}
+	if err := ValidateTaskEndpointPath(o.FetchPath, true); err != nil {
+		return fmt.Errorf("task_endpoint_override.fetch_path: %w", err)
+	}
+	return nil
+}
+
+// ValidateTaskEndpointPath validates an upstream path template. Blank values
+// are allowed so adaptors can retain their existing default endpoint paths.
+func ValidateTaskEndpointPath(pathTemplate string, requireTaskID bool) error {
+	trimmedPath := strings.TrimSpace(pathTemplate)
+	if trimmedPath == "" {
+		return nil
+	}
+	if trimmedPath != pathTemplate {
+		return fmt.Errorf("must not contain leading or trailing whitespace")
+	}
+	if !strings.HasPrefix(pathTemplate, "/") || strings.HasPrefix(pathTemplate, "//") {
+		return fmt.Errorf("must begin with exactly one /")
+	}
+	if strings.Contains(pathTemplate, "#") {
+		return fmt.Errorf("must not contain a fragment")
+	}
+
+	parsedPath, err := url.Parse(pathTemplate)
+	if err != nil {
+		return fmt.Errorf("must be a valid URL path: %w", err)
+	}
+	if _, err := url.QueryUnescape(parsedPath.RawQuery); err != nil {
+		return fmt.Errorf("must not contain malformed URL escapes: %w", err)
+	}
+	if parsedPath.IsAbs() || parsedPath.Scheme != "" || parsedPath.Host != "" || parsedPath.User != nil || parsedPath.Opaque != "" {
+		return fmt.Errorf("must be a same-origin relative path")
+	}
+	for _, segment := range strings.Split(parsedPath.Path, "/") {
+		if segment == "." || segment == ".." {
+			return fmt.Errorf("must not contain . or .. path segments")
+		}
+	}
+
+	placeholderCount := strings.Count(pathTemplate, TaskIDPlaceholder)
+	withoutTaskID := strings.ReplaceAll(pathTemplate, TaskIDPlaceholder, "")
+	if strings.ContainsAny(withoutTaskID, "{}") {
+		return fmt.Errorf("contains an unsupported placeholder")
+	}
+	if requireTaskID {
+		if placeholderCount != 1 {
+			return fmt.Errorf("must contain %s exactly once", TaskIDPlaceholder)
+		}
+	} else if placeholderCount != 0 {
+		return fmt.Errorf("must not contain placeholders")
+	}
+
+	return nil
 }
 
 func (s *ChannelOtherSettings) IsOpenRouterEnterprise() bool {

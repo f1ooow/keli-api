@@ -404,8 +404,9 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 	info.ChannelMeta = &relaycommon.ChannelMeta{
 		// ChannelId lets task adaptors load per-channel OtherInfo during polling
 		// (e.g. volcvod reads playback domain / url-auth key to sign result URLs).
-		ChannelId:      cacheGetChannel.Id,
-		ChannelBaseUrl: cacheGetChannel.GetBaseURL(),
+		ChannelId:            cacheGetChannel.Id,
+		ChannelBaseUrl:       cacheGetChannel.GetBaseURL(),
+		ChannelOtherSettings: cacheGetChannel.GetOtherSettings(),
 	}
 	info.ApiKey = cacheGetChannel.Key
 	adaptor.Init(info)

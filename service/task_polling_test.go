@@ -20,16 +20,26 @@ import (
 )
 
 type taskPollingFetchAdaptor struct {
-	mu           sync.Mutex
-	taskIDs      []string
-	fetched      chan string
-	blockTaskID  string
-	blockStarted chan struct{}
-	releaseBlock chan struct{}
-	blockOnce    sync.Once
+	mu                              sync.Mutex
+	taskIDs                         []string
+	initializedTaskEndpointOverride *dto.TaskEndpointOverride
+	fetched                         chan string
+	blockTaskID                     string
+	blockStarted                    chan struct{}
+	releaseBlock                    chan struct{}
+	blockOnce                       sync.Once
 }
 
-func (a *taskPollingFetchAdaptor) Init(_ *relaycommon.RelayInfo) {}
+func (a *taskPollingFetchAdaptor) Init(info *relaycommon.RelayInfo) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.initializedTaskEndpointOverride = nil
+	if info == nil || info.ChannelMeta == nil || info.ChannelOtherSettings.TaskEndpointOverride == nil {
+		return
+	}
+	override := *info.ChannelOtherSettings.TaskEndpointOverride
+	a.initializedTaskEndpointOverride = &override
+}
 
 func (a *taskPollingFetchAdaptor) FetchTask(_ string, _ string, body map[string]any, _ string) (*http.Response, error) {
 	taskID, _ := body["task_id"].(string)
@@ -90,6 +100,16 @@ func (a *taskPollingFetchAdaptor) fetchedTaskIDs() []string {
 	return append([]string(nil), a.taskIDs...)
 }
 
+func (a *taskPollingFetchAdaptor) taskEndpointOverride() *dto.TaskEndpointOverride {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.initializedTaskEndpointOverride == nil {
+		return nil
+	}
+	override := *a.initializedTaskEndpointOverride
+	return &override
+}
+
 func seedTaskPollingChannel(t *testing.T, id int, disableSleep bool) {
 	t.Helper()
 	ch := &model.Channel{
@@ -123,6 +143,45 @@ func seedPollingTask(t *testing.T, channelID int, publicID string, upstreamID st
 	}
 	require.NoError(t, model.DB.Create(task).Error)
 	return task
+}
+
+func TestUpdateVideoTasksPassesChannelOtherSettingsToAdaptor(t *testing.T) {
+	truncate(t)
+
+	channelID := 111
+	ch := &model.Channel{
+		Id:     channelID,
+		Type:   constant.ChannelTypeAli,
+		Name:   "polling_channel_with_endpoint_override",
+		Key:    "sk-test",
+		Status: common.ChannelStatusEnabled,
+	}
+	ch.SetOtherSettings(dto.ChannelOtherSettings{
+		DisableTaskPollingSleep: true,
+		TaskEndpointOverride: &dto.TaskEndpointOverride{
+			SubmitPath: "/v1/submit",
+			FetchPath:  "/v1/tasks/{task_id}",
+		},
+	})
+	require.NoError(t, model.DB.Create(ch).Error)
+	task := seedPollingTask(t, channelID, "task_public_endpoint_override", "upstream_endpoint_override")
+
+	adaptor := &taskPollingFetchAdaptor{}
+	previousFactory := GetTaskAdaptorFunc
+	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }
+	t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
+
+	err := UpdateVideoTasks(context.Background(), constant.TaskPlatform("17"), map[int][]string{
+		channelID: {"upstream_endpoint_override"},
+	}, map[string]*model.Task{
+		"upstream_endpoint_override": task,
+	})
+
+	require.NoError(t, err)
+	override := adaptor.taskEndpointOverride()
+	require.NotNil(t, override)
+	assert.Equal(t, "/v1/submit", override.SubmitPath)
+	assert.Equal(t, "/v1/tasks/{task_id}", override.FetchPath)
 }
 
 func TestUpdateVideoTasksDefaultSleepWaitsBetweenTasks(t *testing.T) {

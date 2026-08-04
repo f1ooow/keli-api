@@ -6,14 +6,96 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func testRelayInfo() *relaycommon.RelayInfo {
 	return &relaycommon.RelayInfo{
 		ChannelMeta: &relaycommon.ChannelMeta{},
+	}
+}
+
+func TestTaskAdaptorEndpointURLs(t *testing.T) {
+	tests := []struct {
+		name          string
+		baseURL       string
+		override      *dto.TaskEndpointOverride
+		taskID        string
+		wantSubmitURL string
+		wantFetchURL  string
+	}{
+		{
+			name:          "official Ali defaults",
+			baseURL:       "https://dashscope.aliyuncs.com",
+			taskID:        "task-official",
+			wantSubmitURL: "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+			wantFetchURL:  "https://dashscope.aliyuncs.com/api/v1/tasks/task-official",
+		},
+		{
+			name:          "Yunwu prefix defaults",
+			baseURL:       "https://yunwu.ai/alibailian",
+			taskID:        "task-yunwu",
+			wantSubmitURL: "https://yunwu.ai/alibailian/api/v1/services/aigc/video-generation/video-synthesis",
+			wantFetchURL:  "https://yunwu.ai/alibailian/api/v1/tasks/task-yunwu",
+		},
+		{
+			name:    "documented Zivv paths",
+			baseURL: "https://zivv.pro",
+			override: &dto.TaskEndpointOverride{
+				SubmitPath: "/v1/services/aigc/video-generation/video-synthesis",
+				FetchPath:  "/v1/tasks/{task_id}",
+			},
+			taskID:        "task-zivv",
+			wantSubmitURL: "https://zivv.pro/v1/services/aigc/video-generation/video-synthesis",
+			wantFetchURL:  "https://zivv.pro/v1/tasks/task-zivv",
+		},
+		{
+			name:    "submit override only",
+			baseURL: "https://relay.example/vendor",
+			override: &dto.TaskEndpointOverride{
+				SubmitPath: "/custom/submit",
+			},
+			taskID:        "task-default-fetch",
+			wantSubmitURL: "https://relay.example/vendor/custom/submit",
+			wantFetchURL:  "https://relay.example/vendor/api/v1/tasks/task-default-fetch",
+		},
+		{
+			name:    "fetch override only",
+			baseURL: "https://relay.example/vendor",
+			override: &dto.TaskEndpointOverride{
+				FetchPath: "/custom/tasks/{task_id}?detail=true",
+			},
+			taskID:        "folder/task 1",
+			wantSubmitURL: "https://relay.example/vendor/api/v1/services/aigc/video-generation/video-synthesis",
+			wantFetchURL:  "https://relay.example/vendor/custom/tasks/folder%2Ftask%201?detail=true",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			info := &relaycommon.RelayInfo{
+				ChannelMeta: &relaycommon.ChannelMeta{
+					ChannelBaseUrl: tt.baseURL,
+					ChannelOtherSettings: dto.ChannelOtherSettings{
+						TaskEndpointOverride: tt.override,
+					},
+				},
+			}
+			adaptor := &TaskAdaptor{}
+			adaptor.Init(info)
+
+			submitURL, err := adaptor.BuildRequestURL(info)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantSubmitURL, submitURL)
+
+			fetchURL, err := adaptor.buildFetchURL(tt.baseURL, tt.taskID)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantFetchURL, fetchURL)
+		})
 	}
 }
 

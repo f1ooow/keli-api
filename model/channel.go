@@ -962,6 +962,9 @@ func (channel *Channel) ValidateSettings() error {
 			return err
 		}
 	}
+	if err := channelOtherSettings.TaskEndpointOverride.Validate(); err != nil {
+		return err
+	}
 	return nil
 }
 

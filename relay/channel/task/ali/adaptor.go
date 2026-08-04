@@ -122,15 +122,17 @@ type AliMetadata struct {
 
 type TaskAdaptor struct {
 	taskcommon.BaseBilling
-	ChannelType int
-	apiKey      string
-	baseURL     string
+	ChannelType          int
+	apiKey               string
+	baseURL              string
+	taskEndpointOverride *dto.TaskEndpointOverride
 }
 
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 	a.ChannelType = info.ChannelType
 	a.baseURL = info.ChannelBaseUrl
 	a.apiKey = info.ApiKey
+	a.taskEndpointOverride = info.ChannelOtherSettings.TaskEndpointOverride
 }
 
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.TaskError) {
@@ -139,6 +141,9 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 }
 
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	if a.taskEndpointOverride != nil && strings.TrimSpace(a.taskEndpointOverride.SubmitPath) != "" {
+		return taskcommon.ResolveEndpointURL(a.baseURL, a.taskEndpointOverride.SubmitPath, nil)
+	}
 	return fmt.Sprintf("%s/api/v1/services/aigc/video-generation/video-synthesis", a.baseURL), nil
 }
 
@@ -549,7 +554,10 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 		return nil, fmt.Errorf("invalid task_id")
 	}
 
-	uri := fmt.Sprintf("%s/api/v1/tasks/%s", baseUrl, taskID)
+	uri, err := a.buildFetchURL(baseUrl, taskID)
+	if err != nil {
+		return nil, err
+	}
 
 	req, err := http.NewRequest(http.MethodGet, uri, nil)
 	if err != nil {
@@ -563,6 +571,15 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 		return nil, fmt.Errorf("new proxy http client failed: %w", err)
 	}
 	return client.Do(req)
+}
+
+func (a *TaskAdaptor) buildFetchURL(baseURL, taskID string) (string, error) {
+	if a.taskEndpointOverride != nil && strings.TrimSpace(a.taskEndpointOverride.FetchPath) != "" {
+		return taskcommon.ResolveEndpointURL(baseURL, a.taskEndpointOverride.FetchPath, map[string]string{
+			"task_id": taskID,
+		})
+	}
+	return fmt.Sprintf("%s/api/v1/tasks/%s", baseURL, taskID), nil
 }
 
 func (a *TaskAdaptor) GetModelList() []string {
