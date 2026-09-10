@@ -56,6 +56,7 @@ const (
 	ChannelTypeReplicate      = 56
 	ChannelTypeCodex          = 57
 	ChannelTypeAdvancedCustom = 58
+	ChannelTypeNewAPI         = 60
 	ChannelTypeViapi          = 100
 	ChannelTypeVolcVod        = 101
 	ChannelTypeVolcCv         = 102
@@ -225,6 +226,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeReplicate:      "Replicate",
 	ChannelTypeCodex:          "ChatGPT Subscription (Codex)",
 	ChannelTypeAdvancedCustom: "Advanced Custom",
+	ChannelTypeNewAPI:         "New API",
 	ChannelTypeViapi:          "AliViapi",
 	ChannelTypeVolcVod:        "VolcVOD",
 	ChannelTypeVolcCv:         "VolcCV",
