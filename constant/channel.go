@@ -60,6 +60,7 @@ const (
 	ChannelTypeViapi          = 100
 	ChannelTypeVolcVod        = 101
 	ChannelTypeVolcCv         = 102
+	ChannelTypeFastAIToken    = 103
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
 
 )
@@ -168,6 +169,7 @@ var ChannelBaseURLs = []string{
 	"",                                          //100 viapi: per-product endpoint, base URL not used
 	"https://vod.volcengineapi.com",             //101 volcvod
 	"https://visual.volcengineapi.com",          //102 volccv (火山引擎 CV: 图像增强 / 高清放大)
+	"https://fastaitoken.com",                   //103 fastaitoken (异步视频任务中转)
 }
 
 var ChannelTypeNames = map[int]string{
@@ -230,6 +232,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeViapi:          "AliViapi",
 	ChannelTypeVolcVod:        "VolcVOD",
 	ChannelTypeVolcCv:         "VolcCV",
+	ChannelTypeFastAIToken:    "FastAIToken",
 }
 
 func GetChannelTypeName(channelType int) string {
