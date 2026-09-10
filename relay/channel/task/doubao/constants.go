@@ -7,8 +7,10 @@ var ModelList = []string{
 	"doubao-seedance-1-0-lite-t2v",
 	"doubao-seedance-1-0-lite-i2v",
 	"doubao-seedance-1-5-pro-251215",
+	"doubao-seedance-2-5-260628",
 	"doubao-seedance-2-0-260128",
 	"doubao-seedance-2-0-fast-260128",
+	"doubao-seedance-2-0-mini-260615",
 }
 
 var ChannelName = "doubao-video"
@@ -21,9 +23,14 @@ type videoPriceKey struct {
 }
 
 // videoPriceTable 各模型在不同 (输出分辨率档, 是否含视频输入) 下的单价（元/百万 token）。
-// 其中零值键 {480p/720p, 不含视频} 为基准价，等于管理员应配置的 ModelRatio；
-// 计费时取 实际单价/基准价 作为 OtherRatio。
+// 其中零值键 {480p/720p, 不含视频} 为基准单价；管理员应配置
+// ModelRatio=基准单价/2（本 fork 约定 1 ratio = 2 元/百万 token）。
+// 计费时仅取 实际单价/基准单价 作为 OtherRatio。
 var videoPriceTable = map[string]map[videoPriceKey]float64{
+	"doubao-seedance-2-5-260628": {
+		{hasVideo: false}: 70.0,
+		{hasVideo: true}:  42.0,
+	},
 	"doubao-seedance-2-0-260128": {
 		{hasVideo: false}:                46.0,
 		{hasVideo: true}:                 28.0,
@@ -33,8 +40,14 @@ var videoPriceTable = map[string]map[videoPriceKey]float64{
 		{is4k: true, hasVideo: true}:     16.0,
 	},
 	"doubao-seedance-2-0-fast-260128": {
-		{hasVideo: false}: 37.0,
-		{hasVideo: true}:  22.0,
+		// 2026-08-07 14:00 至 2026-09-07 14:00 官方限时 75 折成本价。
+		{hasVideo: false}: 27.75,
+		{hasVideo: true}:  16.5,
+	},
+	"doubao-seedance-2-0-mini-260615": {
+		// 2026-08-07 14:00 至 2026-09-07 14:00 官方限时 4 折成本价。
+		{hasVideo: false}: 9.2,
+		{hasVideo: true}:  5.6,
 	},
 }
 

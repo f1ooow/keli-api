@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 // 前端单一真相源：模型名 → pricingType → 公式 / 单位 / 倍率表。
 // 不改后端 Pricing struct（quota_type 只有 0/1），由前端按 model_name 前缀
-// 推导出 5 种 pricingType: per_token / per_call / per_second / per_minute / per_character。
+// 推导出扩展 pricingType，包括按 Token、按次、按秒、按分钟、按字符和视频专用计费。
 // 未匹配模型走 quota_type=0/1 fallback，与改造前 100% 行为一致。
 
 const formatNumber = (n, digits = 4) => {
@@ -32,8 +32,10 @@ const formatNumber = (n, digits = 4) => {
 // 按 newapi 后端 relay/channel/task/ali/adaptor.go aliRatios 复刻的分辨率倍率。
 // 维护节奏：upstream 改 aliRatios 时，把对应 entry 同步到这里。
 const HAPPYHORSE_RESOLUTION_RATIOS = { '720P': 1, '1080P': 1.333333 };
+const MINIMAX_H3_RESOLUTION_RATIOS = { '768P': 1, '1080P': 1.25, '2K': 1.25 };
 
 const RESOLUTION_RATIOS = {
+  'MiniMax-H3': MINIMAX_H3_RESOLUTION_RATIOS,
   'happyhorse-1.0-t2v': HAPPYHORSE_RESOLUTION_RATIOS,
   'happyhorse-1.0-i2v': HAPPYHORSE_RESOLUTION_RATIOS,
   'happyhorse-1.0-r2v': HAPPYHORSE_RESOLUTION_RATIOS,
@@ -96,6 +98,148 @@ export function resolveVideoTierRows(model, usedGroupRatio, displayPrice) {
   });
 }
 
+// Seedance 实际按输出 token 计费。为了让模型广场能直接回答“每秒大约多少钱”，
+// 这里用官方 16:9、5 秒样例的 token 用量换算预估秒价；后端仍按真实 token 精确结算。
+// 官方 CNY/1M token 单价与 relay/channel/task/doubao/constants.go 必须同步。
+const SEEDANCE_VIDEO_TOKEN_PRICES = {
+  'doubao-seedance-2-5-260628': [
+    {
+      resolution: '480P',
+      sampleDuration: 5,
+      sampleTokenUsage: 48038,
+      tokensPerSecond: 9607.6,
+      withoutVideo: 70,
+      withVideo: 42,
+    },
+    {
+      resolution: '720P',
+      sampleDuration: 5,
+      sampleTokenUsage: 108000,
+      tokensPerSecond: 21600,
+      withoutVideo: 70,
+      withVideo: 42,
+    },
+    {
+      resolution: '1080P',
+      sampleDuration: 5,
+      sampleTokenUsage: 243000,
+      tokensPerSecond: 48600,
+      withoutVideo: 77,
+      withVideo: 46,
+    },
+  ],
+  'doubao-seedance-2-0-260128': [
+    {
+      resolution: '480P',
+      sampleDuration: 5,
+      sampleTokenUsage: 50220,
+      tokensPerSecond: 10044,
+      withoutVideo: 46,
+      withVideo: 28,
+    },
+    {
+      resolution: '720P',
+      sampleDuration: 5,
+      sampleTokenUsage: 108000,
+      tokensPerSecond: 21600,
+      withoutVideo: 46,
+      withVideo: 28,
+    },
+    {
+      resolution: '1080P',
+      sampleDuration: 5,
+      sampleTokenUsage: 243000,
+      tokensPerSecond: 48600,
+      withoutVideo: 51,
+      withVideo: 31,
+    },
+    {
+      resolution: '4K',
+      sampleDuration: 5,
+      sampleTokenUsage: 972000,
+      tokensPerSecond: 194400,
+      withoutVideo: 26,
+      withVideo: 16,
+    },
+  ],
+  'doubao-seedance-2-0-fast-260128': [
+    {
+      resolution: '480P',
+      sampleDuration: 5,
+      sampleTokenUsage: 50220,
+      tokensPerSecond: 10044,
+      withoutVideo: 37,
+      withVideo: 22,
+    },
+    {
+      resolution: '720P',
+      sampleDuration: 5,
+      sampleTokenUsage: 108000,
+      tokensPerSecond: 21600,
+      withoutVideo: 37,
+      withVideo: 22,
+    },
+  ],
+  'doubao-seedance-2-0-mini-260615': [
+    {
+      resolution: '480P',
+      sampleDuration: 5,
+      sampleTokenUsage: 50220,
+      tokensPerSecond: 10044,
+      withoutVideo: 23,
+      withVideo: 14,
+    },
+    {
+      resolution: '720P',
+      sampleDuration: 5,
+      sampleTokenUsage: 108000,
+      tokensPerSecond: 21600,
+      withoutVideo: 23,
+      withVideo: 14,
+    },
+  ],
+};
+
+export function resolveSeedanceVideoPriceRows(
+  model,
+  usedGroupRatio,
+  displayCnyPrice,
+) {
+  const rows = SEEDANCE_VIDEO_TOKEN_PRICES[model?.model_name];
+  if (!rows) return null;
+  const gr = Number(usedGroupRatio) || 1;
+  return rows.map((row) => {
+    const sampleDuration = row.sampleDuration || 5;
+    const sampleTokenUsage =
+      row.sampleTokenUsage || Math.round(row.tokensPerSecond * sampleDuration);
+    const withoutVideoPerSecond =
+      (row.withoutVideo * row.tokensPerSecond * gr) / 1000000;
+    const withVideoPerSecond =
+      (row.withVideo * row.tokensPerSecond * gr) / 1000000;
+    return {
+      ...row,
+      sampleDuration,
+      sampleTokenUsage,
+      withoutVideoPriceLabel:
+        typeof displayCnyPrice === 'function'
+          ? displayCnyPrice(withoutVideoPerSecond)
+          : `¥${withoutVideoPerSecond.toFixed(3)}`,
+      withVideoPriceLabel:
+        typeof displayCnyPrice === 'function'
+          ? displayCnyPrice(withVideoPerSecond)
+          : `¥${withVideoPerSecond.toFixed(3)}`,
+      withoutVideoCostLabel:
+        typeof displayCnyPrice === 'function'
+          ? displayCnyPrice(withoutVideoPerSecond * sampleDuration)
+          : `¥${(withoutVideoPerSecond * sampleDuration).toFixed(3)}`,
+      withVideoCostLabel:
+        typeof displayCnyPrice === 'function'
+          ? displayCnyPrice(withVideoPerSecond * sampleDuration)
+          : `¥${(withVideoPerSecond * sampleDuration).toFixed(3)}`,
+    };
+  });
+}
+
 // 给 per_second 模型按分辨率倍率算出每档绝对价（含 group_ratio）。
 // displayPrice 由调用方注入（带 currency / 充值汇率处理），保持单一 formatter。
 // 返回 [{ resolution: '720P', ratio: 1, priceLabel: '¥1.530' }, ...] 或 null。
@@ -131,6 +275,7 @@ export const PRICING_TYPES = {
   PER_MINUTE: 'per_minute',
   PER_CHARACTER: 'per_character',
   PER_VIDEO_TIER: 'per_video_tier',
+  PER_VIDEO_TOKEN: 'per_video_token',
 };
 
 export const PRICING_TEMPLATES = {
@@ -228,6 +373,28 @@ export const PRICING_TEMPLATES = {
       };
     },
   },
+  per_video_token: {
+    type: 'per_video_token',
+    label: '视频 Token 计费',
+    unit: '秒（预估）',
+    factors: [
+      'model_ratio',
+      'output_tokens',
+      'video_input_ratio',
+      'group_ratio',
+    ],
+    formula: '官方 Token 单价 × 实际输出 Token 数 × 分组倍率',
+    renderFormula: (model, groupRatio) => {
+      const gr = Number(groupRatio) || 1;
+      const rows = SEEDANCE_VIDEO_TOKEN_PRICES[model.model_name];
+      if (!rows) return null;
+      return {
+        formula: `官方元/百万 Token 单价 × 实际输出 Token ÷ 1,000,000 × 分组倍率(${formatNumber(gr)})`,
+        note: '表格按官方 16:9、5 秒、无参考视频样例估算；真实账单严格按上游返回的实际 Token 数结算。含参考视频时使用官方对应 Token 单价。',
+        examples: [],
+      };
+    },
+  },
   per_character: {
     type: 'per_character',
     label: '按字符计费',
@@ -265,13 +432,18 @@ export const MODEL_PRICING_RULES = [
 
   // 按秒视频（happyhorse 家族 — fulladaptor 引入）
   { match: (n) => n.startsWith('happyhorse-'), type: PRICING_TYPES.PER_SECOND },
+  // MiniMax H3 是按秒 × 分辨率倍率；必须放在旧 Hailuo 前缀规则之前。
+  { match: (n) => n === 'MiniMax-H3', type: PRICING_TYPES.PER_SECOND },
   // 按档位视频（MiniMax Hailuo 家族 — 分辨率+时长 组合查表）
   {
     match: (n) => n.startsWith('MiniMax-Hailuo-'),
     type: PRICING_TYPES.PER_VIDEO_TIER,
   },
-  // 预留：未来 Seedance / Wan 视频按秒计费时在此添加：
-  // { match: (n) => n.startsWith('doubao-seedance-'), type: PRICING_TYPES.PER_SECOND },
+  // Seedance 实际按视频输出 token 结算；模型广场额外提供透明的预估秒价。
+  {
+    match: (n) => n.startsWith('doubao-seedance-'),
+    type: PRICING_TYPES.PER_VIDEO_TOKEN,
+  },
 
   // 按字符 TTS
   { match: (n) => n.startsWith('speech-'), type: PRICING_TYPES.PER_CHARACTER },

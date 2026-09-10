@@ -73,6 +73,7 @@ const PricingPage = () => {
         siteDisplayType={pricingData.siteDisplayType}
         tokenUnit={pricingData.tokenUnit}
         displayPrice={pricingData.displayPrice}
+        displayCnyPrice={pricingData.displayCnyPrice}
         showRatio={allProps.showRatio}
         vendorsMap={pricingData.vendorsMap}
         endpointMap={pricingData.endpointMap}

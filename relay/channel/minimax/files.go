@@ -7,10 +7,12 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	taskcommon "github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
@@ -18,13 +20,42 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// MiniMaxFileObject 上传后单个文件的元信息（file_id 跨边界使用 string 避免 JS Number 精度问题）
+// MiniMaxFileObject 上传后单个文件的元信息（file_id 跨边界使用 string 避免 JS Number 精度问题）。
+// 上游历史响应存在 JSON number/string 两种形态，因此自定义反序列化后统一输出 string。
 type MiniMaxFileObject struct {
-	FileID    int64  `json:"file_id,string"`
+	FileID    string `json:"file_id"`
 	Bytes     int64  `json:"bytes,omitempty"`
 	CreatedAt int64  `json:"created_at,omitempty"`
 	Filename  string `json:"filename,omitempty"`
 	Purpose   string `json:"purpose,omitempty"`
+}
+
+func (f *MiniMaxFileObject) UnmarshalJSON(data []byte) error {
+	type fileObjectAlias struct {
+		FileID    json.RawMessage `json:"file_id"`
+		Bytes     int64           `json:"bytes,omitempty"`
+		CreatedAt int64           `json:"created_at,omitempty"`
+		Filename  string          `json:"filename,omitempty"`
+		Purpose   string          `json:"purpose,omitempty"`
+	}
+	var value fileObjectAlias
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	f.Bytes = value.Bytes
+	f.CreatedAt = value.CreatedAt
+	f.Filename = value.Filename
+	f.Purpose = value.Purpose
+	if len(value.FileID) == 0 || string(value.FileID) == "null" {
+		f.FileID = ""
+		return nil
+	}
+	if err := json.Unmarshal(value.FileID, &f.FileID); err == nil {
+		f.FileID = strings.TrimSpace(f.FileID)
+		return nil
+	}
+	f.FileID = strings.Trim(strings.TrimSpace(string(value.FileID)), "\"")
+	return nil
 }
 
 // MiniMaxFileResponse 上传响应
@@ -102,11 +133,14 @@ func RelayMiniMaxFilesUpload(c *gin.Context, info *relaycommon.RelayInfo) (usage
 		)
 	}
 
-	baseURL := info.ChannelBaseUrl
-	if baseURL == "" {
-		baseURL = "https://api.minimax.chat"
+	upstreamURL, urlErr := buildMiniMaxFilesUploadURL(info.ChannelBaseUrl)
+	if urlErr != nil {
+		return nil, types.NewErrorWithStatusCode(
+			fmt.Errorf("failed to resolve minimax files upload URL: %w", urlErr),
+			types.ErrorCodeInvalidRequest,
+			http.StatusBadRequest,
+		)
 	}
-	upstreamURL := fmt.Sprintf("%s/v1/files/upload", baseURL)
 
 	req, reqErr := http.NewRequest(http.MethodPost, upstreamURL, &requestBody)
 	if reqErr != nil {
@@ -177,4 +211,11 @@ func RelayMiniMaxFilesUpload(c *gin.Context, info *relaycommon.RelayInfo) (usage
 
 	// 不扣费但要走完链路
 	return &dto.Usage{TotalTokens: 0}, nil
+}
+
+func buildMiniMaxFilesUploadURL(baseURL string) (string, error) {
+	if strings.TrimSpace(baseURL) == "" {
+		baseURL = "https://api.minimax.chat"
+	}
+	return taskcommon.ResolveEndpointURL(baseURL, "/v1/files/upload", nil)
 }

@@ -39,6 +39,7 @@ const ModelDetailSideSheet = ({
   siteDisplayType,
   tokenUnit,
   displayPrice,
+  displayCnyPrice,
   showRatio,
   usableGroup,
   vendorsMap,
@@ -95,17 +96,18 @@ const ModelDetailSideSheet = ({
                 t={t}
               />
             </div>
-            {modelData.billing_mode === 'tiered_expr' && modelData.billing_expr && (
-              <>
-                <Divider margin={16} />
-                <div style={{ padding: '0 24px' }}>
-                  <DynamicPricingBreakdown
-                    billingExpr={modelData.billing_expr}
-                    t={t}
-                  />
-                </div>
-              </>
-            )}
+            {modelData.billing_mode === 'tiered_expr' &&
+              modelData.billing_expr && (
+                <>
+                  <Divider margin={16} />
+                  <div style={{ padding: '0 24px' }}>
+                    <DynamicPricingBreakdown
+                      billingExpr={modelData.billing_expr}
+                      t={t}
+                    />
+                  </div>
+                </>
+              )}
             <Divider margin={16} />
             <div style={{ padding: '0 24px' }}>
               <ModelPricingTable
@@ -115,6 +117,7 @@ const ModelDetailSideSheet = ({
                 siteDisplayType={siteDisplayType}
                 tokenUnit={tokenUnit}
                 displayPrice={displayPrice}
+                displayCnyPrice={displayCnyPrice}
                 showRatio={showRatio}
                 usableGroup={usableGroup}
                 autoGroups={autoGroups}

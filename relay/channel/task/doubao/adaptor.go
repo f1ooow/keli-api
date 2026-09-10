@@ -54,6 +54,7 @@ type requestPayload struct {
 	} `json:"tools,omitempty"`
 	SafetyIdentifier string         `json:"safety_identifier,omitempty"`
 	Priority         *dto.IntValue  `json:"priority,omitempty"`
+	OutputFormat     string         `json:"output_format,omitempty"`
 	Resolution       string         `json:"resolution,omitempty"`
 	Ratio            string         `json:"ratio,omitempty"`
 	Duration         *dto.IntValue  `json:"duration,omitempty"`

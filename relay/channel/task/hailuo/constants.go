@@ -5,6 +5,7 @@ const (
 )
 
 var ModelList = []string{
+	"MiniMax-H3",
 	"MiniMax-Hailuo-2.3",
 	"MiniMax-Hailuo-2.3-Fast",
 	"MiniMax-Hailuo-02",
@@ -19,7 +20,11 @@ var ModelList = []string{
 const (
 	TextToVideoEndpoint = "/v1/video_generation"
 	QueryTaskEndpoint   = "/v1/query/video_generation"
+	H3CreateEndpoint    = "/v2/video_generation"
+	H3QueryEndpoint     = "/v2/query/video_generation/{task_id}"
 )
+
+const ModelMiniMaxH3 = "MiniMax-H3"
 
 const (
 	StatusSuccess    = 0
@@ -44,11 +49,15 @@ const (
 	Resolution720P  = "720P"
 	Resolution768P  = "768P"
 	Resolution1080P = "1080P"
+	Resolution2K    = "2K"
 )
 
 const (
 	DefaultDuration   = 6
 	DefaultResolution = Resolution720P
+	H3DefaultDuration = 5
+	// H3 high-resolution pricing is ¥0.25/s versus the ¥0.20/s 768P base.
+	H3HighResolutionRatio = 1.25
 )
 
 // HailuoTierRatios 是 Hailuo 视频"分辨率 × 时长"分档倍率表。
@@ -58,9 +67,10 @@ const (
 // key 格式: "<Resolution>-<Duration>"，如 "768P-6"、"1080P-6"、"512P-10"
 //
 // 期望最终价（ModelPrice × tier ratio × group_ratio × QuotaPerUnit）:
-//   MiniMax-Hailuo-2.3-Fast 768P 6s=1.35 / 768P 10s=2.25 / 1080P 6s=2.31
-//   MiniMax-Hailuo-2.3      768P 6s=2.00 / 768P 10s=4.00 / 1080P 6s=3.50
-//   MiniMax-Hailuo-02       768P 6s=2.00 / 768P 10s=4.00 / 1080P 6s=3.50 / 512P 6s=0.60 / 512P 10s=1.00
+//
+//	MiniMax-Hailuo-2.3-Fast 768P 6s=1.35 / 768P 10s=2.25 / 1080P 6s=2.31
+//	MiniMax-Hailuo-2.3      768P 6s=2.00 / 768P 10s=4.00 / 1080P 6s=3.50
+//	MiniMax-Hailuo-02       768P 6s=2.00 / 768P 10s=4.00 / 1080P 6s=3.50 / 512P 6s=0.60 / 512P 10s=1.00
 var HailuoTierRatios = map[string]map[string]float64{
 	"MiniMax-Hailuo-2.3-Fast": {
 		"768P-6":  1.0,

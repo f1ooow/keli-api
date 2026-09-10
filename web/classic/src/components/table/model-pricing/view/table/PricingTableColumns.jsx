@@ -121,6 +121,7 @@ export const getPricingTableColumns = ({
   siteDisplayType,
   tokenUnit,
   displayPrice,
+  displayCnyPrice,
   showRatio,
 }) => {
   const isMobile = useIsMobile();
@@ -135,6 +136,7 @@ export const getPricingTableColumns = ({
         groupRatio,
         tokenUnit,
         displayPrice,
+        displayCnyPrice,
         currency,
         quotaDisplayType: siteDisplayType,
       });

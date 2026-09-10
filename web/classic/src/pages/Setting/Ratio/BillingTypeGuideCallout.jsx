@@ -26,17 +26,38 @@ const { Text } = Typography;
 // localStorage key 持久化用户折叠态选择
 const STORAGE_KEY = 'pricing_guide_collapsed';
 
-// 4 种主要计费类型的配置指引（按 PRD R3 段落）+ token 兜底说明
+// 7 种主要计费类型的配置指引（含两种视频专用计费）
 const GUIDE_SECTIONS = [
   {
     type: '按秒计费',
     tagColor: 'cyan',
-    example: 'happyhorse-1.0-t2v / hailuo-* / doubao-seedance-*',
+    example: 'happyhorse-* / MiniMax-H3',
     items: [
       '✓ 在【模型固定价格 ModelPrice】配【单价 元/秒】（如 happyhorse-1.0-t2v = 0.9）',
       '✓ 阿里 / 阿里云家族需在 relay/channel/task/ali/adaptor.go 的 aliRatios 加分辨率倍率（720P=1, 1080P=1.778）',
       '✗ 不要配 ModelRatio',
       '✗ 不要在前端额外加映射（pricingTypeRegistry 已按前缀 happyhorse-* 自动识别）',
+    ],
+  },
+  {
+    type: '按视频档位计费',
+    tagColor: 'blue',
+    example: 'MiniMax-Hailuo-2.3 / 2.3-Fast / 02',
+    items: [
+      '✓ 在【模型固定价格 ModelPrice】配置基准档位价格',
+      '✓ adaptor 按分辨率和时长追加档位倍率',
+      '✗ 不要把分档视频误配成单一按秒价格',
+    ],
+  },
+  {
+    type: '视频 Token 计费',
+    tagColor: 'purple',
+    example: 'doubao-seedance-2.5 / 2.0 / Fast / Mini',
+    items: [
+      '✓ 在【模型倍率 ModelRatio】配置官方无视频输入基准价 ÷ 2',
+      '✓ doubao adaptor 根据分辨率和是否含视频输入追加 OtherRatio，真实账单按上游输出 Token 结算',
+      '✓ 模型广场的元/秒是按 16:9 历史 token/s 估算，实际费用以 Token 用量为准',
+      '✗ 不要改成 ModelPrice 按秒扣费，否则会和上游 Token 账单偏离',
     ],
   },
   {
@@ -115,7 +136,7 @@ const BillingTypeGuideCallout = () => {
           <Collapse.Panel
             header={
               <span style={{ fontWeight: 600 }}>
-                {t('新增模型怎么算钱？5 种计费方式配置指南')}
+                {t('新增模型怎么算钱？7 种计费方式配置指南')}
               </span>
             }
             itemKey='guide'
@@ -125,7 +146,9 @@ const BillingTypeGuideCallout = () => {
                 <div
                   key={idx}
                   className='border-l-2 pl-3 py-1'
-                  style={{ borderColor: `var(--semi-color-${section.tagColor}-3)` }}
+                  style={{
+                    borderColor: `var(--semi-color-${section.tagColor}-3)`,
+                  }}
                 >
                   <div className='mb-1'>
                     <Tag color={section.tagColor} shape='circle' size='small'>

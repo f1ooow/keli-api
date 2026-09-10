@@ -18,20 +18,30 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React from 'react';
-import { Avatar, Card, Tag, Typography } from '@douyinfe/semi-ui';
+import { Avatar, Card, Table, Tag, Typography } from '@douyinfe/semi-ui';
 import { IconCalendarClock } from '@douyinfe/semi-icons';
+import { resolveSeedanceVideoPriceRows } from '../../../../../helpers/pricingTypeRegistry';
 
 const { Text } = Typography;
 
 // 详情弹窗内的"计费公式说明"卡片。
 // 当 pricing_template.renderFormula 返回 null（per_token）时整体不渲染，
 // 弹窗保持现有"分组价格"表的样子。
-const BillingFormulaCard = ({ model, usedGroupRatio, t }) => {
+const BillingFormulaCard = ({ model, usedGroupRatio, displayCnyPrice, t }) => {
   const template = model?.pricing_template;
   if (!template || typeof template.renderFormula !== 'function') return null;
 
   const detail = template.renderFormula(model, usedGroupRatio || 1);
   if (!detail) return null;
+
+  const videoTokenRows =
+    model?.pricing_type === 'per_video_token'
+      ? resolveSeedanceVideoPriceRows(
+          model,
+          usedGroupRatio || 1,
+          displayCnyPrice,
+        )
+      : null;
 
   return (
     <div className='mt-6'>
@@ -66,6 +76,66 @@ const BillingFormulaCard = ({ model, usedGroupRatio, t }) => {
             <Text type='tertiary' size='small'>
               {t(detail.note)}
             </Text>
+          )}
+
+          {Array.isArray(videoTokenRows) && videoTokenRows.length > 0 && (
+            <div className='space-y-2'>
+              <div className='text-xs text-gray-500'>
+                {t('16:9、5 秒示例')} · {t('不含参考视频')}
+              </div>
+              <Table
+                dataSource={videoTokenRows}
+                pagination={false}
+                size='small'
+                bordered
+                columns={[
+                  {
+                    title: t('分辨率'),
+                    dataIndex: 'resolution',
+                    render: (value) => <Text strong>{value}</Text>,
+                  },
+                  {
+                    title: t('Token 单价'),
+                    render: (_, row) => (
+                      <div className='whitespace-nowrap text-xs'>
+                        <div>
+                          {row.withoutVideo.toFixed(2)} {t('元/百万 tokens')}
+                        </div>
+                        <div className='text-gray-500'>
+                          {t('含视频输入')} {row.withVideo.toFixed(2)}{' '}
+                          {t('元/百万 tokens')}
+                        </div>
+                      </div>
+                    ),
+                  },
+                  {
+                    title: t('Token 用量'),
+                    render: (_, row) => (
+                      <span className='whitespace-nowrap'>
+                        {row.sampleTokenUsage.toLocaleString()}
+                      </span>
+                    ),
+                  },
+                  {
+                    title: t('视频费用'),
+                    render: (_, row) => (
+                      <span className='whitespace-nowrap'>
+                        {row.withoutVideoCostLabel}
+                      </span>
+                    ),
+                  },
+                  {
+                    title: t('约每秒'),
+                    render: (_, row) => (
+                      <span className='whitespace-nowrap font-semibold'>
+                        {row.withoutVideoPriceLabel}
+                      </span>
+                    ),
+                  },
+                ]}
+                scroll={{ x: 560 }}
+              />
+            </div>
           )}
 
           {Array.isArray(detail.examples) && detail.examples.length > 0 && (

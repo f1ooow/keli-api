@@ -196,6 +196,13 @@ export const useModelPricingData = () => {
     return `$${priceInUSD.toFixed(3)}`;
   };
 
+  // Seedance 官方视频 Token 单价以人民币计价；先还原为美元基准，
+  // 再复用统一货币/充值汇率 formatter，避免人民币价格被重复乘美元汇率。
+  const displayCnyPrice = (cnyPrice) => {
+    const exchangeRate = Number(usdExchangeRate) || 1;
+    return displayPrice(Number(cnyPrice) / exchangeRate);
+  };
+
   const setModelsFormat = (models, groupRatio, vendorMap) => {
     for (let i = 0; i < models.length; i++) {
       const m = models[i];
@@ -399,6 +406,7 @@ export const useModelPricingData = () => {
 
     // 方法
     displayPrice,
+    displayCnyPrice,
     refresh,
     copyText,
     handleChange,

@@ -40,6 +40,7 @@ const PricingTable = ({
   siteDisplayType,
   tokenUnit,
   displayPrice,
+  displayCnyPrice,
   searchValue,
   showRatio,
   compactMode = false,
@@ -58,6 +59,7 @@ const PricingTable = ({
       siteDisplayType,
       tokenUnit,
       displayPrice,
+      displayCnyPrice,
       showRatio,
     });
   }, [
@@ -71,6 +73,7 @@ const PricingTable = ({
     siteDisplayType,
     tokenUnit,
     displayPrice,
+    displayCnyPrice,
     showRatio,
   ]);
 

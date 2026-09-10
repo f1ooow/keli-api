@@ -24,6 +24,13 @@ const (
 // 1 === ￥0.014 / 1k tokens
 
 var defaultModelRatio = map[string]float64{
+	// Doubao Seedance video token prices in this fork use CNY and
+	// 1 ModelRatio = 2 CNY / 1M tokens. Fast/Mini reflect the official
+	// 2026-08-07 14:00—2026-09-07 14:00 promotional cost prices.
+	"doubao-seedance-2-5-260628":      35,
+	"doubao-seedance-2-0-260128":      23,
+	"doubao-seedance-2-0-fast-260128": 13.875,
+	"doubao-seedance-2-0-mini-260615": 4.6,
 	//"midjourney":                50,
 	"gpt-4-gizmo-*":                             15,
 	"gpt-4o-gizmo-*":                            2.5,
@@ -300,6 +307,8 @@ var defaultModelPrice = map[string]float64{
 	"veo-3.1-generate-preview":       0.4,
 	"veo-3.1-fast-generate-preview":  0.15,
 	"volc-lens-lqir":                 0.01, // 火山引擎 lens_lqir 图像增强 / 高清放大 (per-call, ~$0.01)
+	"minimax-files-upload":           0,    // MiniMax media upload placeholder; routed to the same fixed channel as H3
+	"MiniMax-H3":                     0.2,  // 768P per-second base; high resolution is 0.25/s (ratio 1.25)
 }
 
 var defaultAudioRatio = map[string]float64{

@@ -20,7 +20,10 @@ For commercial licensing, please contact support@quantumnous.com
 import React from 'react';
 import { Avatar, Typography, Table, Tag } from '@douyinfe/semi-ui';
 import { IconCoinMoneyStroked } from '@douyinfe/semi-icons';
-import { calculateModelPrice, getModelPriceItems } from '../../../../../helpers';
+import {
+  calculateModelPrice,
+  getModelPriceItems,
+} from '../../../../../helpers';
 import BillingFormulaCard from './BillingFormulaCard';
 
 const { Text } = Typography;
@@ -32,6 +35,7 @@ const ModelPricingTable = ({
   siteDisplayType,
   tokenUnit,
   displayPrice,
+  displayCnyPrice,
   showRatio,
   usableGroup,
   autoGroups = [],
@@ -58,6 +62,7 @@ const ModelPricingTable = ({
             groupRatio,
             tokenUnit,
             displayPrice,
+            displayCnyPrice,
             currency,
             quotaDisplayType: siteDisplayType,
           })
@@ -209,23 +214,25 @@ const ModelPricingTable = ({
       {renderGroupPriceTable()}
       <BillingFormulaCard
         model={modelData}
-        usedGroupRatio={
-          (() => {
-            // 取该模型可用分组里倍率最小的（与 calculateModelPrice 默认行为对齐），
-            // 用作公式示例的代表性 group_ratio
-            if (!Array.isArray(modelEnableGroups) || modelEnableGroups.length === 0) {
-              return 1;
+        usedGroupRatio={(() => {
+          // 取该模型可用分组里倍率最小的（与 calculateModelPrice 默认行为对齐），
+          // 用作公式示例的代表性 group_ratio
+          if (
+            !Array.isArray(modelEnableGroups) ||
+            modelEnableGroups.length === 0
+          ) {
+            return 1;
+          }
+          let minRatio = Number.POSITIVE_INFINITY;
+          modelEnableGroups.forEach((g) => {
+            const r = groupRatio?.[g];
+            if (typeof r === 'number' && r < minRatio) {
+              minRatio = r;
             }
-            let minRatio = Number.POSITIVE_INFINITY;
-            modelEnableGroups.forEach((g) => {
-              const r = groupRatio?.[g];
-              if (typeof r === 'number' && r < minRatio) {
-                minRatio = r;
-              }
-            });
-            return Number.isFinite(minRatio) ? minRatio : 1;
-          })()
-        }
+          });
+          return Number.isFinite(minRatio) ? minRatio : 1;
+        })()}
+        displayCnyPrice={displayCnyPrice}
         t={t}
       />
     </div>
