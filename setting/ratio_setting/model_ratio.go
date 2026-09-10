@@ -25,12 +25,13 @@ const (
 
 var defaultModelRatio = map[string]float64{
 	// Doubao Seedance video token prices in this fork use CNY and
-	// 1 ModelRatio = 2 CNY / 1M tokens. Fast/Mini reflect the official
-	// 2026-08-07 14:00—2026-09-07 14:00 promotional cost prices.
+	// 1 ModelRatio = 2 CNY / 1M tokens. These are list prices — never seed
+	// a promotional price here, because options.ModelRatio in a live install
+	// masks these defaults, so a stale promo only surfaces on a fresh instance.
 	"doubao-seedance-2-5-260628":      35,
 	"doubao-seedance-2-0-260128":      23,
-	"doubao-seedance-2-0-fast-260128": 13.875,
-	"doubao-seedance-2-0-mini-260615": 4.6,
+	"doubao-seedance-2-0-fast-260128": 18.5,
+	"doubao-seedance-2-0-mini-260615": 11.5,
 	//"midjourney":                50,
 	"gpt-4-gizmo-*":                             15,
 	"gpt-4o-gizmo-*":                            2.5,
