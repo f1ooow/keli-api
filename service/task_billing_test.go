@@ -171,6 +171,13 @@ func getSubscriptionUsed(t *testing.T, id int) int64 {
 	return sub.AmountUsed
 }
 
+func getTaskQuota(t *testing.T, id int64) int {
+	t.Helper()
+	var task model.Task
+	require.NoError(t, model.DB.Select("quota").Where("id = ?", id).First(&task).Error)
+	return task.Quota
+}
+
 func getLastLog(t *testing.T) *model.Log {
 	t.Helper()
 	var log model.Log
@@ -311,6 +318,7 @@ func TestRecalculate_PositiveDelta(t *testing.T) {
 	seedChannel(t, channelID)
 
 	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	require.NoError(t, model.DB.Create(task).Error)
 
 	RecalculateTaskQuota(ctx, task, actualQuota, "adaptor adjustment")
 
@@ -322,6 +330,7 @@ func TestRecalculate_PositiveDelta(t *testing.T) {
 
 	// task.Quota should be updated to actualQuota
 	assert.Equal(t, actualQuota, task.Quota)
+	assert.Equal(t, actualQuota, getTaskQuota(t, task.ID))
 
 	// Log type should be Consume (additional charge)
 	log := getLastLog(t)
@@ -344,6 +353,7 @@ func TestRecalculate_NegativeDelta(t *testing.T) {
 	seedChannel(t, channelID)
 
 	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	require.NoError(t, model.DB.Create(task).Error)
 
 	RecalculateTaskQuota(ctx, task, actualQuota, "adaptor adjustment")
 
@@ -355,6 +365,7 @@ func TestRecalculate_NegativeDelta(t *testing.T) {
 
 	// task.Quota updated
 	assert.Equal(t, actualQuota, task.Quota)
+	assert.Equal(t, actualQuota, getTaskQuota(t, task.ID))
 
 	// Log type should be Refund
 	log := getLastLog(t)

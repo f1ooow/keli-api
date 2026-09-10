@@ -430,6 +430,13 @@ func (Task *Task) Update() error {
 	return err
 }
 
+// UpdateQuota persists the final settled quota without rewriting the rest of
+// the task row. Async polling stores terminal status before settling, so a full
+// Save here could overwrite a concurrent task update.
+func (t *Task) UpdateQuota(quota int) error {
+	return DB.Model(&Task{}).Where("id = ?", t.ID).Update("quota", quota).Error
+}
+
 // UpdateWithStatus performs a conditional UPDATE guarded by fromStatus (CAS).
 // Returns (true, nil) if this caller won the update, (false, nil) if
 // another process already moved the task out of fromStatus.

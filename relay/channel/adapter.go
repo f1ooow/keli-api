@@ -81,3 +81,11 @@ type TaskAdaptor interface {
 type OpenAIVideoConverter interface {
 	ConvertToOpenAIVideo(originTask *model.Task) ([]byte, error)
 }
+
+// TaskErrorResponseAdaptor is an optional extension for task providers whose
+// non-2xx response body carries a structured provider error. RelayTaskSubmit
+// falls back to the legacy generic error wrapper when an adaptor does not
+// implement this interface or declines to handle the response.
+type TaskErrorResponseAdaptor interface {
+	DoErrorResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) *dto.TaskError
+}

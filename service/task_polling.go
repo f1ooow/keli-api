@@ -33,6 +33,28 @@ type TaskPollingAdaptor interface {
 	AdjustBillingOnComplete(task *model.Task, taskResult *relaycommon.TaskInfo) int
 }
 
+// IsMeaningfulVideoTaskResponse prevents provider-native payloads from being
+// mistaken for the new-api passthrough envelope merely because they happen to
+// contain {"code":"success"}. A passthrough response is authoritative only
+// when its data contains a recognized internal task status.
+func IsMeaningfulVideoTaskResponse(response *dto.TaskResponse[model.Task]) bool {
+	if response == nil || !response.IsSuccess() {
+		return false
+	}
+	switch response.Data.Status {
+	case model.TaskStatusNotStart,
+		model.TaskStatusSubmitted,
+		model.TaskStatusQueued,
+		model.TaskStatusInProgress,
+		model.TaskStatusSuccess,
+		model.TaskStatusFailure,
+		model.TaskStatusUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
 // GetTaskAdaptorFunc 由 main 包注入，用于获取指定平台的任务适配器。
 // 打破 service -> relay -> relay/channel -> service 的循环依赖。
 var GetTaskAdaptorFunc func(platform constant.TaskPlatform) TaskPollingAdaptor
@@ -456,6 +478,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	resp, err := adaptor.FetchTask(baseURL, key, map[string]any{
 		"task_id": task.GetUpstreamTaskID(),
 		"action":  task.Action,
+		"model":   task.Properties.UpstreamModelName,
 	}, proxy)
 	if err != nil {
 		return fmt.Errorf("fetchTask failed for task %s: %w", taskId, err)
@@ -473,7 +496,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	taskResult := &relaycommon.TaskInfo{}
 	// try parse as New API response format
 	var responseItems dto.TaskResponse[model.Task]
-	if err = common.Unmarshal(responseBody, &responseItems); err == nil && responseItems.IsSuccess() {
+	if err = common.Unmarshal(responseBody, &responseItems); err == nil && IsMeaningfulVideoTaskResponse(&responseItems) {
 		logger.LogDebug(ctx, "updateVideoSingleTask parsed as new api response format: %+v", responseItems)
 		t := responseItems.Data
 		taskResult.TaskID = t.TaskID

@@ -215,6 +215,9 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	taskAdjustTokenQuota(ctx, task, quotaDelta)
 
 	task.Quota = actualQuota
+	if err := task.UpdateQuota(actualQuota); err != nil {
+		logger.LogError(ctx, fmt.Sprintf("持久化任务最终额度失败 task %s: %s", task.TaskID, err.Error()))
+	}
 
 	var logType int
 	var logQuota int
